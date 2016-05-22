@@ -1,0 +1,7 @@
+project(LibFinder)
+cmake_minimum_required(VERSION 2.8)
+aux_source_directory(. SRC_LIST)
+add_executable(${PROJECT_NAME} ${SRC_LIST})
+find_package(Boost COMPONENTS filesystem REQUIRED)
+target_link_libraries(${PROJECT_NAME} ${Boost_LIBRARIES})
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_binary_literals)
