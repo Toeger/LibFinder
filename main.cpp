@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
@@ -74,8 +75,12 @@ const char *find_files(std::experimental::string_view data, std::experimental::s
 		while (*left == *right) {
 			left++;
 			right++;
+			to_estimate++;
 		}
-		auto get_value = [](const char *p) { return p[0] * 26 * 26 * 26 + p[1] * 26 * 26 + p[2] * 26 + p[3]; };
+		auto get_value = [](const char *p) {
+			auto get_number = [](char c) -> int { return std::min(std::max(c - ' ', 0), 'z' + 0); };
+			return get_number(p[0]) * 90 * 90 + get_number(p[1]) * 90 + get_number(p[2]);
+		};
 
 		auto left_value = get_value(left);
 		auto right_value = get_value(right);
