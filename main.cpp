@@ -76,7 +76,8 @@ void add_to_database(std::map<std::string, std::string> &symbol_file_map, const 
 			if (std::experimental::string_view(line.data() + linit, 5) != ".text")
 				continue;
 			auto symbol_pos = line.data() + rinit - 1;
-			while (*symbol_pos++ != ' ');
+			while (*symbol_pos++ != ' ')
+				;
 			symbol_file_map[symbol_pos] += ':' + file.path().string();
 		}
 	}
@@ -155,19 +156,23 @@ const char *find_files(std::experimental::string_view data, std::experimental::s
 	return result + 1;
 }
 
-std::string lookup(std::experimental::string_view symbol) {
+std::vector<std::string> lookup(std::experimental::string_view symbol) {
+	std::vector<std::string> retval;
 	boost::interprocess::file_mapping file(data_base_file, boost::interprocess::read_only);
 	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
 	std::experimental::string_view data(static_cast<const char *>(region.get_address()), region.get_size());
 	auto files = find_files(data, symbol);
 	if (files) {
 		auto files_end = files;
-		while (*files_end != '$') {
-			files_end++;
+		while (*++files_end != '$') {
 		}
-		return {files, static_cast<std::size_t>(files_end - files)};
+		std::experimental::string_view all_files(files, files_end - files);
+		for (auto pos = all_files.find(':'); pos != all_files.npos; pos = all_files.find(':')) {
+			retval.emplace_back(all_files.data(), pos);
+			all_files.remove_prefix(pos + 1);
+		}
 	}
-	return {};
+	return retval;
 }
 
 int main(int argc, char *argv[]) {
@@ -176,8 +181,10 @@ int main(int argc, char *argv[]) {
 			std::ofstream db_file(data_base_file);
 			create_database(db_file, libdir);
 		} else {
-			auto files = lookup(argv[1]);
-			std::cout << files << '\n';
+			const auto &files = lookup(argv[1]);
+			for (auto &file : files) {
+				std::cout << file << '\n';
+			}
 		}
 	} else {
 		//TODO: print propper usage
