@@ -5,14 +5,20 @@
 #include <boost/scope_exit.hpp>
 #include <cassert>
 #include <cstdio>
+#include <cxxabi.h>
 #include <experimental/string_view>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <set>
 #include <sstream>
 
-std::string get_output(std::experimental::string_view view) {
-	auto fp = popen(view.data(), "r");
+static constexpr auto libdir = {"/lib", "/usr/lib"};
+static constexpr auto data_base_file = "/tmp/db";
+
+std::string get_output_from_command(std::experimental::string_view command) {
+	auto fp = popen(command.data(), "r");
 	if (!fp) {
 		return {};
 	}
@@ -33,28 +39,50 @@ std::string get_output(std::experimental::string_view view) {
 	return buffer;
 }
 
+std::string get_demangled(std::experimental::string_view string) {
+	//TODO: check if the name is actually mangled
+	int status;
+	std::unique_ptr<char, decltype(std::free) *> p{abi::__cxa_demangle(string.data(), nullptr, nullptr, &status), &std::free};
+	if (status == 0) {
+		return p.get();
+	}
+	return {string.data(), string.size()};
+}
+
 void add_to_database(std::map<std::string, std::string> &symbol_file_map, const std::experimental::string_view dir) {
 	for (auto &file : boost::filesystem::recursive_directory_iterator(boost::filesystem::path(dir.data()))) {
-		auto filetype = get_output("file " + file.path().string());
-		if (filetype.find("ELF 64-bit LSB shared object") == std::string::npos) {
+		auto file_command_output = get_output_from_command("file -L " + file.path().string());
+		if (file_command_output.find("symbolic link to ") != std::string::npos)
+			continue;
+		if (file_command_output.find("ELF 32-bit LSB shared object") != std::string::npos)
+			continue;
+		if (file_command_output.find("ELF 64-bit LSB shared object") == std::string::npos) {
 			continue;
 		}
-		std::stringstream ss(get_output("readelf -Ws " + file.path().string()));
+		std::stringstream ss(get_output_from_command("objdump -TCw  " + file.path().string()));
 		std::string line;
 		std::getline(ss, line); //empty line
-		std::getline(ss, line); //number of symbols in symbol table
+		std::getline(ss, line); //file format
+		std::getline(ss, line); //empty line
 		std::getline(ss, line); //caption
-		auto name_pos = line.find("Name");
+		std::getline(ss, line); //.init line
+		auto linit = line.find(".init");
+		if (linit == std::string::npos)
+			continue;
+		auto rinit = line.rfind(".init");
+		if (rinit == std::string::npos)
+			continue;
 		while (std::getline(ss, line)) {
-			if (line.data()[name_pos]) {
-				line[name_pos - 1] = ':';
-				symbol_file_map[line.data() + name_pos] += ':' + file.path().string();
-			}
+			if (std::experimental::string_view(line.data() + linit, 5) != ".text")
+				continue;
+			auto symbol_pos = line.data() + rinit - 1;
+			while (*symbol_pos++ != ' ');
+			symbol_file_map[symbol_pos] += ':' + file.path().string();
 		}
 	}
 }
 
-void create_database(std::ostream &file, const std::vector<std::string> &library_directories) {
+void create_database(std::ostream &file, const std::initializer_list<const char *const> &library_directories) {
 	std::map<std::string, std::string> symbol_file_map;
 	for (auto &dir : library_directories) {
 		add_to_database(symbol_file_map, dir);
@@ -96,9 +124,6 @@ const char *find_files(std::experimental::string_view data, std::experimental::s
 	while (right - left > 1000) {
 		auto mid = estimate_position(left, right, symbol.data());
 		clean_pos(mid);
-		if (mid == left || mid == right) { //we made no progress
-			break;
-		}
 		if (symbol < mid) {
 			right = mid;
 		} else {
@@ -112,6 +137,9 @@ const char *find_files(std::experimental::string_view data, std::experimental::s
 		} else {
 			left = mid;
 		}
+	}
+	if (std::experimental::string_view(right, symbol.size()) == symbol) {
+		return right + symbol.size() + 1;
 	}
 	std::experimental::string_view rest(left, right - left);
 	auto pos = rest.find(symbol);
@@ -127,28 +155,29 @@ const char *find_files(std::experimental::string_view data, std::experimental::s
 	return result + 1;
 }
 
-const char *lookup(std::experimental::string_view symbol) {
-	boost::interprocess::file_mapping file("/tmp/db", boost::interprocess::read_only);
+std::string lookup(std::experimental::string_view symbol) {
+	boost::interprocess::file_mapping file(data_base_file, boost::interprocess::read_only);
 	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
 	std::experimental::string_view data(static_cast<const char *>(region.get_address()), region.get_size());
-	return find_files(data, symbol);
+	auto files = find_files(data, symbol);
+	if (files) {
+		auto files_end = files;
+		while (*files_end != '$') {
+			files_end++;
+		}
+		return {files, static_cast<std::size_t>(files_end - files)};
+	}
+	return {};
 }
 
 int main(int argc, char *argv[]) {
-	const auto database_file = "/tmp/db";
 	if (argc == 2) {
 		if (std::strcmp(argv[1], "updatedb") == 0) {
-			std::ofstream db_file(database_file);
-			create_database(db_file, {"/usr/lib"});
+			std::ofstream db_file(data_base_file);
+			create_database(db_file, libdir);
 		} else {
 			auto files = lookup(argv[1]);
-			if (files) {
-				auto files_end = files;
-				while (*files_end != '$') {
-					files_end++;
-				}
-				std::cout << std::experimental::string_view(files, files_end - files) << '\n';
-			}
+			std::cout << files << '\n';
 		}
 	} else {
 		//TODO: print propper usage
