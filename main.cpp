@@ -2,20 +2,18 @@
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
+#include <boost/program_options.hpp>
 #include <boost/scope_exit.hpp>
 #include <cassert>
-#include <cstdio>
-#include <cxxabi.h>
 #include <experimental/string_view>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <map>
 #include <memory>
-#include <set>
-#include <sstream>
 
-static constexpr auto libdir = {"/lib", "/usr/lib"};
-static constexpr auto data_base_file = "/tmp/db";
+static const auto libdirs = {"/lib", "/usr/lib"};
+static const auto data_base_file = "~/.libfinder/database"; //TODO: find a way to share the database between users
 
 std::string get_output_from_command(std::experimental::string_view command) {
 	auto fp = popen(command.data(), "r");
@@ -39,23 +37,15 @@ std::string get_output_from_command(std::experimental::string_view command) {
 	return buffer;
 }
 
-std::string get_demangled(std::experimental::string_view string) {
-	//TODO: check if the name is actually mangled
-	int status;
-	std::unique_ptr<char, decltype(std::free) *> p{abi::__cxa_demangle(string.data(), nullptr, nullptr, &status), &std::free};
-	if (status == 0) {
-		return p.get();
-	}
-	return {string.data(), string.size()};
-}
-
 void add_to_database(std::map<std::string, std::string> &symbol_file_map, const std::experimental::string_view dir) {
 	for (auto &file : boost::filesystem::recursive_directory_iterator(boost::filesystem::path(dir.data()))) {
 		auto file_command_output = get_output_from_command("file -L " + file.path().string());
-		if (file_command_output.find("symbolic link to ") != std::string::npos)
+		if (file_command_output.find("symbolic link to ") != std::string::npos) {
 			continue;
-		if (file_command_output.find("ELF 32-bit LSB shared object") != std::string::npos)
+		}
+		if (file_command_output.find("ELF 32-bit LSB shared object") != std::string::npos) {
 			continue;
+		}
 		if (file_command_output.find("ELF 64-bit LSB shared object") == std::string::npos) {
 			continue;
 		}
@@ -67,23 +57,28 @@ void add_to_database(std::map<std::string, std::string> &symbol_file_map, const 
 		std::getline(ss, line); //caption
 		std::getline(ss, line); //.init line
 		auto linit = line.find(".init");
-		if (linit == std::string::npos)
+		if (linit == std::string::npos) {
 			continue;
+		}
 		auto rinit = line.rfind(".init");
-		if (rinit == std::string::npos)
+		if (rinit == std::string::npos) {
 			continue;
+		}
 		while (std::getline(ss, line)) {
-			if (std::experimental::string_view(line.data() + linit, 5) != ".text")
+			if (std::experimental::string_view(line.data() + linit, 5) != ".text") {
 				continue;
+			}
 			auto symbol_pos = line.data() + rinit - 1;
-			while (*symbol_pos++ != ' ')
+			while (*symbol_pos++ != ' ') {
 				;
+			}
 			symbol_file_map[symbol_pos] += ':' + file.path().string();
 		}
 	}
 }
 
-void create_database(std::ostream &file, const std::initializer_list<const char *const> &library_directories) {
+template <class T>
+void create_database(std::ostream &file, const T &library_directories) {
 	std::map<std::string, std::string> symbol_file_map;
 	for (auto &dir : library_directories) {
 		add_to_database(symbol_file_map, dir);
@@ -116,6 +111,9 @@ const char *find_files(std::experimental::string_view data, std::experimental::s
 		auto estimate_value = get_value(to_estimate);
 		assert(left_value <= estimate_value);
 		assert(estimate_value <= right_value);
+		if (left_value == right_value) {
+			return left;
+		}
 		return left + (right - left) * (estimate_value - left_value) / (right_value - left_value);
 	};
 
@@ -176,18 +174,22 @@ std::vector<std::string> lookup(std::experimental::string_view symbol) {
 }
 
 int main(int argc, char *argv[]) {
-	if (argc == 2) {
-		if (std::strcmp(argv[1], "updatedb") == 0) {
-			std::ofstream db_file(data_base_file);
-			create_database(db_file, libdir);
-		} else {
-			const auto &files = lookup(argv[1]);
-			for (auto &file : files) {
-				std::cout << file << '\n';
-			}
+	boost::program_options::options_description options("Parameters");
+	options.add_options()("help,h", "print this")("update,u", "update lookup table")("symbol,s", boost::program_options::value<std::string>(),
+																					 "the symbol to look up");
+	boost::program_options::variables_map variables_map;
+	boost::program_options::store(boost::program_options::parse_command_line(argc, argv, options), variables_map);
+	boost::program_options::notify(variables_map);
+	if (variables_map.count("update")) {
+		std::ofstream db_file(data_base_file);
+		create_database(db_file, libdirs);
+	} if (variables_map.count("help")) {
+		std::cout << options;
+	} if (variables_map.count("symbol")) {
+		const auto &files = lookup(variables_map["symbol"].as<std::string>());
+		for (auto &file : files) {
+			std::cout << file << '\n';
+			break;
 		}
-	} else {
-		//TODO: print propper usage
-		std::cout << "use \"LibFinder updatedb\" to update the library symbol index and then \"LibFinder [somesymbol]\" to look up the library to a symbol\n";
 	}
 }
