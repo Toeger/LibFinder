@@ -6,7 +6,6 @@
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
 #include <boost/program_options.hpp>
-#include <boost/scope_exit.hpp>
 #include <cassert>
 #include <experimental/string_view>
 #include <fstream>
@@ -16,31 +15,28 @@
 #include <map>
 #include <memory>
 #include <sstream>
-#include <thread>
-#include <unordered_map>
 
 using Map = std::map<std::string, std::string>;
+
+static std::atomic<int> symbols{0};
 
 static std::mutex popen_mutex;
 std::string get_output_from_command(std::experimental::string_view command) {
 	assert(command.data());
-	FILE *fp; //maybe use a unique_ptr<FILE> instead of scope-exit?
+	std::unique_ptr<FILE, decltype(pclose) *> fp{nullptr, &pclose};
 	{
 		std::lock_guard<std::mutex> popen_lock(popen_mutex); //unfortunately popen doesn't seem to be thread safe
-		fp = popen(command.data(), "r");
+		std::unique_ptr<FILE, decltype(pclose) *> p{popen(command.data(), "r"), &pclose};
+		fp = std::move(p);
 	}
 	if (!fp) {
 		return {};
 	}
-	BOOST_SCOPE_EXIT(&fp) {
-		pclose(fp);
-	}
-	BOOST_SCOPE_EXIT_END
 	std::string buffer;
 	const int buffersize = 1024;
 	for (;;) {
 		buffer.resize(buffer.size() + buffersize);
-		std::size_t read = fread(&buffer[buffer.size() - buffersize], sizeof *buffer.data(), buffersize, fp);
+		std::size_t read = fread(&buffer[buffer.size() - buffersize], sizeof *buffer.data(), buffersize, fp.get());
 		if (read < buffersize) {
 			buffer.resize(buffer.size() - buffersize + read);
 			break;
@@ -56,14 +52,7 @@ static const auto data_base_path = [] {
 }();
 static const auto data_base_file = data_base_path + "/database"; //TODO: find a way to share the database between users
 
-static Thread_safe_queue<std::string> libs_to_scan;
-static std::atomic<int> symbols{0};
-static std::atomic<int> libs{0};
-static std::atomic<int> active_threads;
-int total_libs;
-
 void add_to_database(Map &symbol_file_map, const std::experimental::string_view file_path) {
-	libs++;
 	std::stringstream ss(get_output_from_command(std::string("objdump -TCw  ") + file_path.data()));
 	std::string line;
 	std::getline(ss, line); //empty line
@@ -201,29 +190,32 @@ int main(int argc, char *argv[]) {
 	}
 	if (variables_map.count("update")) {
 		Thread_safe_queue<std::string> lib_file_paths;
+		std::atomic<int> libs{0};
 		{
 			auto &queue = lib_file_paths.not_thread_safe_get();
 			std::istringstream is(get_output_from_command("locate .so"));
 			for (std::string line; std::getline(is, line);) {
 				queue.push(std::move(line));
 			}
-			total_libs = queue.size();
 		}
+		const int total_libs = lib_file_paths.size();
 
 		std::vector<std::future<Map>> threads;
-		active_threads = jobs;
 		std::mutex printer;
 
-		auto thread_handler = [&printer, &lib_file_paths] {
+		auto thread_handler = [&printer, &lib_file_paths, &libs, total_libs] {
 			Map symbol_map;
-			std::string lib;
-			while (lib_file_paths.pop(lib)) {
-				add_to_database(symbol_map, lib);
-				std::lock_guard<std::mutex> lock(printer);
-				std::cout << "found " << symbols << " symbols in " << libs << "/" << total_libs << " libs\r" << std::flush;
+			while (!lib_file_paths.empty()) {
+				auto lib_paths = lib_file_paths.pop_n(100);
+				for (auto &lib_path : lib_paths) {
+					add_to_database(symbol_map, lib_path);
+					std::lock_guard<std::mutex> lock(printer);
+					std::cout << "found " << symbols << " symbols in " << ++libs << "/" << total_libs << " libs\r" << std::flush;
+				}
 			}
 			return symbol_map;
 		};
+		threads.reserve(jobs - 1);
 		while (--jobs) {
 			threads.push_back(std::async(std::launch::async, thread_handler));
 		}
