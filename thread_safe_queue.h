@@ -1,20 +1,22 @@
 #pragma once
 
+#include <algorithm>
 #include <mutex>
 #include <queue>
+#include <vector>
 
 template <class T>
 struct Thread_safe_queue {
     void push(T &&t) {
-        std::unique_lock<std::mutex> lock(qm);
+        std::lock_guard<std::mutex> lock(qm);
         q.push(std::move(t));
     }
     void push(const T &t) {
-        std::unique_lock<std::mutex> lock(qm);
+        std::lock_guard<std::mutex> lock(qm);
         q.push(t);
     }
     bool pop(T &t) {
-        std::unique_lock<std::mutex> lock(qm);
+        std::lock_guard<std::mutex> lock(qm);
         if (q.empty()) {
             return false;
         }
@@ -22,11 +24,25 @@ struct Thread_safe_queue {
         q.pop();
         return true;
     }
+    std::vector<T> pop_n(int n) {
+        std::vector<T> retval;
+        retval.reserve(n);
+        std::lock_guard<std::mutex> lock(qm);
+        for (n = std::min(n, static_cast<int>(q.size())); n; n--) {
+            retval.emplace_back(std::move(q.front()));
+            q.pop();
+        }
+        return retval;
+    }
     bool empty() const {
-        std::unique_lock<std::mutex> lock(qm);
+        std::lock_guard<std::mutex> lock(qm);
         return q.empty();
     }
-    std::queue<T> &not_thread_safe_get(){
+    int size() const{
+        std::lock_guard<std::mutex> lock(qm);
+        return q.size();
+    }
+    std::queue<T> &not_thread_safe_get() {
         return q;
     }
 
