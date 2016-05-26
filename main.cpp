@@ -195,7 +195,9 @@ int main(int argc, char *argv[]) {
 			auto &queue = lib_file_paths.not_thread_safe_get();
 			std::istringstream is(get_output_from_command("locate .so"));
 			for (std::string line; std::getline(is, line);) {
-				queue.push(std::move(line));
+				if (line.rfind('/') < line.rfind(".so")) {
+					queue.push(std::move(line));
+				}
 			}
 		}
 		const int total_libs = lib_file_paths.size();
@@ -220,10 +222,6 @@ int main(int argc, char *argv[]) {
 			threads.push_back(std::async(std::launch::async, thread_handler));
 		}
 		auto symbol_map = thread_handler();
-		{
-			std::lock_guard<std::mutex> lock(printer);
-			std::cout << "done scanning\n" << std::flush;
-		}
 		for (auto &t : threads) {
 			for (auto &p : t.get()) {
 				symbol_map[p.first] += p.second;
@@ -241,11 +239,12 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	if (variables_map.count("symbol")) {
-		const auto &files = lookup(variables_map["symbol"].as<std::string>());
+		auto files = lookup(variables_map["symbol"].as<std::string>());
+		std::sort(std::begin(files), std::end(files));
 		for (auto &file : files) {
-			std::cout << file;
-			break;
+			std::cout << file << '\n';
 		}
+		return 0; //avoid double newline at end of output
 	}
 	std::cout << '\n';
 }
