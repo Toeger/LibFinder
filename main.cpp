@@ -168,7 +168,10 @@ std::vector<std::string> lookup(std::experimental::string_view symbol) {
 }
 
 int main(int argc, char *argv[]) {
-	boost::program_options::options_description options("Parameters");
+	boost::program_options::options_description options(
+		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder "
+		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "
+		"[symbol].\nParameters");
 	int jobs = 0;
 	options.add_options()("help,h", "print this")("update,u", "update lookup table")("symbol,s", boost::program_options::value<std::string>(),
 																					 "the symbol to look up")(
