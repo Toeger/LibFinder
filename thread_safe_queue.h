@@ -26,6 +26,9 @@ struct Thread_safe_queue {
         std::unique_lock<std::mutex> lock(qm);
         return q.empty();
     }
+    std::queue<T> &not_thread_safe_get(){
+        return q;
+    }
 
     private:
     mutable std::mutex qm;

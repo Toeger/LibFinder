@@ -49,8 +49,6 @@ std::string get_output_from_command(std::experimental::string_view command) {
 	return buffer;
 }
 
-//static const auto libdirs = {"/lib"};
-static const auto libdirs = {"/lib", "/usr/lib"};
 static const auto data_base_path = [] {
 	auto username = get_output_from_command("whoami");
 	username.pop_back(); //remove newline
@@ -58,77 +56,44 @@ static const auto data_base_path = [] {
 }();
 static const auto data_base_file = data_base_path + "/database"; //TODO: find a way to share the database between users
 
-static Thread_safe_queue<std::string> directories_to_scan;
+static Thread_safe_queue<std::string> libs_to_scan;
 static std::atomic<int> symbols{0};
 static std::atomic<int> libs{0};
 static std::atomic<int> active_threads;
+int total_libs;
 
-void add_to_database(Map &symbol_file_map, const std::experimental::string_view dir) {
-	decltype(boost::filesystem::directory_iterator(boost::filesystem::path(dir.data()))) range;
-	try {
-		range = boost::filesystem::directory_iterator(boost::filesystem::path(dir.data()));
-	} catch (...) {
+void add_to_database(Map &symbol_file_map, const std::experimental::string_view file_path) {
+	libs++;
+	std::stringstream ss(get_output_from_command(std::string("objdump -TCw  ") + file_path.data()));
+	std::string line;
+	std::getline(ss, line); //empty line
+	std::getline(ss, line); //file format
+	std::getline(ss, line); //empty line
+	std::getline(ss, line); //caption
+	std::getline(ss, line); //.init line
+	auto linit = line.find(".init");
+	if (linit == std::string::npos) {
 		return;
 	}
-	for (auto &file : range) {
-		if (boost::filesystem::is_directory(file)) {
-			directories_to_scan.push(file.path().string());
+	auto rinit = line.rfind(".init");
+	if (rinit == std::string::npos) {
+		return;
+	}
+	while (std::getline(ss, line)) {
+		if (std::experimental::string_view(line.data() + linit, 5) != ".text") {
 			continue;
 		}
-		if (file.path().string().rfind(".so") == std::string::npos) {
-			continue;
+		auto symbol_pos = line.data() + rinit - 1;
+		while (*symbol_pos++ != ' ') {
 		}
-		std::string file_command_output;
-		try {
-			auto path = file.path();
-			auto command = "file -L " + path.string();
-			file_command_output = get_output_from_command(command);
-		} catch (...) {
-			continue;
-		}
-
-		if (file_command_output.find("symbolic link to ") != std::string::npos) {
-			continue;
-		}
-		if (file_command_output.find("ELF 64-bit LSB shared object") == std::string::npos) {
-			continue;
-		}
-		libs++;
-		std::stringstream ss(get_output_from_command("objdump -TCw  " + file.path().string()));
-		std::string line;
-		std::getline(ss, line); //empty line
-		std::getline(ss, line); //file format
-		std::getline(ss, line); //empty line
-		std::getline(ss, line); //caption
-		std::getline(ss, line); //.init line
-		auto linit = line.find(".init");
-		if (linit == std::string::npos) {
-			continue;
-		}
-		auto rinit = line.rfind(".init");
-		if (rinit == std::string::npos) {
-			continue;
-		}
-		while (std::getline(ss, line)) {
-			if (std::experimental::string_view(line.data() + linit, 5) != ".text") {
-				continue;
-			}
-			auto symbol_pos = line.data() + rinit - 1;
-			while (*symbol_pos++ != ' ') {
-			}
-			symbol_file_map[symbol_pos] += ':' + file.path().string();
-			symbols++;
-		}
+		auto &entry = symbol_file_map[symbol_pos];
+		entry.push_back(':');
+		entry += file_path.data();
+		symbols++;
 	}
 }
 
-void create_database(std::ostream &file, const Map &symbol_file_map) {
-	for (auto &p : symbol_file_map) {
-		file << '$' << p.first << p.second;
-	}
-}
-
-const char *find_files(std::experimental::string_view data, std::experimental::string_view symbol) {
+const char *symbol_lookup(std::experimental::string_view data, std::experimental::string_view symbol) {
 	auto clean_pos = [](const char *&data) {
 		while (data[-1] != '$') {
 			data--;
@@ -199,7 +164,7 @@ std::vector<std::string> lookup(std::experimental::string_view symbol) {
 	boost::interprocess::file_mapping file(data_base_file.c_str(), boost::interprocess::read_only);
 	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
 	std::experimental::string_view data(static_cast<const char *>(region.get_address()), region.get_size());
-	auto files = find_files(data, symbol);
+	auto files = symbol_lookup(data, symbol);
 	if (files) {
 		auto files_end = files;
 		while (*++files_end != '$') {
@@ -235,35 +200,27 @@ int main(int argc, char *argv[]) {
 		std::cout << options;
 	}
 	if (variables_map.count("update")) {
-		for (auto &dir : libdirs) {
-			directories_to_scan.push(dir);
+		Thread_safe_queue<std::string> lib_file_paths;
+		{
+			auto &queue = lib_file_paths.not_thread_safe_get();
+			std::istringstream is(get_output_from_command("locate .so"));
+			for (std::string line; std::getline(is, line);) {
+				queue.push(std::move(line));
+			}
+			total_libs = queue.size();
 		}
 
 		std::vector<std::future<Map>> threads;
 		active_threads = jobs;
 		std::mutex printer;
 
-		auto thread_handler = [&printer] {
-			bool is_active = true;
+		auto thread_handler = [&printer, &lib_file_paths] {
 			Map symbol_map;
-			//symbol_map.reserve(10000000);
-			while (active_threads && symbols < 10000000) {
-				if (!is_active) {
-					is_active = true;
-					active_threads++;
-				}
-				std::string dir;
-				if (directories_to_scan.pop(dir)) {
-					add_to_database(symbol_map, dir);
-					std::lock_guard<std::mutex> lock(printer);
-					std::cout << "found " << symbols << " symbols in " << libs << " libs utilizing " << active_threads << " thread(s)\r" << std::flush;
-				} else {
-					if (is_active) {
-						is_active = false;
-						active_threads--;
-					}
-					std::this_thread::sleep_for(std::chrono::milliseconds(100));
-				}
+			std::string lib;
+			while (lib_file_paths.pop(lib)) {
+				add_to_database(symbol_map, lib);
+				std::lock_guard<std::mutex> lock(printer);
+				std::cout << "found " << symbols << " symbols in " << libs << "/" << total_libs << " libs\r" << std::flush;
 			}
 			return symbol_map;
 		};
@@ -271,15 +228,15 @@ int main(int argc, char *argv[]) {
 			threads.push_back(std::async(std::launch::async, thread_handler));
 		}
 		auto symbol_map = thread_handler();
-		std::cout << "done scanning\n" << std::flush;
+		{
+			std::lock_guard<std::mutex> lock(printer);
+			std::cout << "done scanning\n" << std::flush;
+		}
 		for (auto &t : threads) {
-			t.get();
-			continue;
 			for (auto &p : t.get()) {
-				symbol_map[p.first] += symbol_map[p.second];
+				symbol_map[p.first] += p.second;
 			}
 		}
-		return 0;
 
 		boost::filesystem::create_directory(data_base_path);
 		std::ofstream db_file(data_base_file, std::ios_base::out);
@@ -287,7 +244,9 @@ int main(int argc, char *argv[]) {
 			std::cerr << "failed opening database file " << data_base_file << '\n';
 			return -1;
 		}
-		create_database(db_file, symbol_map);
+		for (auto &p : symbol_map) {
+			db_file << '$' << p.first << p.second;
+		}
 	}
 	if (variables_map.count("symbol")) {
 		const auto &files = lookup(variables_map["symbol"].as<std::string>());
