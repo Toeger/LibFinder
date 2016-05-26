@@ -1,4 +1,7 @@
+#include "thread_safe_queue.h"
+
 #include <algorithm>
+#include <atomic>
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
@@ -7,13 +10,25 @@
 #include <cassert>
 #include <experimental/string_view>
 #include <fstream>
+#include <future>
 #include <initializer_list>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <sstream>
+#include <thread>
+#include <unordered_map>
 
+using Map = std::map<std::string, std::string>;
+
+static std::mutex popen_mutex;
 std::string get_output_from_command(std::experimental::string_view command) {
-	auto fp = popen(command.data(), "r");
+	assert(command.data());
+	FILE *fp; //maybe use a unique_ptr<FILE> instead of scope-exit?
+	{
+		std::lock_guard<std::mutex> popen_lock(popen_mutex); //unfortunately popen doesn't seem to be thread safe
+		fp = popen(command.data(), "r");
+	}
 	if (!fp) {
 		return {};
 	}
@@ -34,6 +49,7 @@ std::string get_output_from_command(std::experimental::string_view command) {
 	return buffer;
 }
 
+//static const auto libdirs = {"/lib"};
 static const auto libdirs = {"/lib", "/usr/lib"};
 static const auto data_base_path = [] {
 	auto username = get_output_from_command("whoami");
@@ -42,18 +58,36 @@ static const auto data_base_path = [] {
 }();
 static const auto data_base_file = data_base_path + "/database"; //TODO: find a way to share the database between users
 
-void add_to_database(std::map<std::string, std::string> &symbol_file_map, const std::experimental::string_view dir) {
-	static int symbols = 0;
-	static int libs = 0;
-	static int files = 0;
-	for (auto &file : boost::filesystem::recursive_directory_iterator(boost::filesystem::path(dir.data()))) {
-		files++;
-		std::cout << "\rfound " << symbols << " symbols in " << libs << " libs of " << files << " files" << std::flush;
-		auto file_command_output = get_output_from_command("file -L " + file.path().string());
-		if (file_command_output.find("symbolic link to ") != std::string::npos) {
+static Thread_safe_queue<std::string> directories_to_scan;
+static std::atomic<int> symbols{0};
+static std::atomic<int> libs{0};
+static std::atomic<int> active_threads;
+
+void add_to_database(Map &symbol_file_map, const std::experimental::string_view dir) {
+	decltype(boost::filesystem::directory_iterator(boost::filesystem::path(dir.data()))) range;
+	try {
+		range = boost::filesystem::directory_iterator(boost::filesystem::path(dir.data()));
+	} catch (...) {
+		return;
+	}
+	for (auto &file : range) {
+		if (boost::filesystem::is_directory(file)) {
+			directories_to_scan.push(file.path().string());
 			continue;
 		}
-		if (file_command_output.find("ELF 32-bit LSB shared object") != std::string::npos) {
+		if (file.path().string().rfind(".so") == std::string::npos) {
+			continue;
+		}
+		std::string file_command_output;
+		try {
+			auto path = file.path();
+			auto command = "file -L " + path.string();
+			file_command_output = get_output_from_command(command);
+		} catch (...) {
+			continue;
+		}
+
+		if (file_command_output.find("symbolic link to ") != std::string::npos) {
 			continue;
 		}
 		if (file_command_output.find("ELF 64-bit LSB shared object") == std::string::npos) {
@@ -88,12 +122,7 @@ void add_to_database(std::map<std::string, std::string> &symbol_file_map, const 
 	}
 }
 
-template <class T>
-void create_database(std::ostream &file, const T &library_directories) {
-	std::map<std::string, std::string> symbol_file_map;
-	for (auto &dir : library_directories) {
-		add_to_database(symbol_file_map, dir);
-	}
+void create_database(std::ostream &file, const Map &symbol_file_map) {
 	for (auto &p : symbol_file_map) {
 		file << '$' << p.first << p.second;
 	}
@@ -186,10 +215,10 @@ std::vector<std::string> lookup(std::experimental::string_view symbol) {
 
 int main(int argc, char *argv[]) {
 	boost::program_options::options_description options("Parameters");
-	int jobs;
+	int jobs = 0;
 	options.add_options()("help,h", "print this")("update,u", "update lookup table")("symbol,s", boost::program_options::value<std::string>(),
 																					 "the symbol to look up")(
-		"jobs,j", boost::program_options::value<int>(&jobs)->default_value(1), "specify the maximum number of threads to use");
+		"jobs,j", boost::program_options::value<int>(&jobs)->default_value(1), "specify the maximum number of threads to use, must be at least 1");
 	boost::program_options::variables_map variables_map;
 	try {
 		boost::program_options::store(boost::program_options::parse_command_line(argc, argv, options), variables_map);
@@ -198,17 +227,67 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	boost::program_options::notify(variables_map);
+	if (jobs < 1) {
+		std::cerr << "jobs must be at least 1\n";
+		return -1;
+	}
 	if (variables_map.count("help")) {
 		std::cout << options;
 	}
 	if (variables_map.count("update")) {
+		for (auto &dir : libdirs) {
+			directories_to_scan.push(dir);
+		}
+
+		std::vector<std::future<Map>> threads;
+		active_threads = jobs;
+		std::mutex printer;
+
+		auto thread_handler = [&printer] {
+			bool is_active = true;
+			Map symbol_map;
+			//symbol_map.reserve(10000000);
+			while (active_threads && symbols < 10000000) {
+				if (!is_active) {
+					is_active = true;
+					active_threads++;
+				}
+				std::string dir;
+				if (directories_to_scan.pop(dir)) {
+					add_to_database(symbol_map, dir);
+					std::lock_guard<std::mutex> lock(printer);
+					std::cout << "found " << symbols << " symbols in " << libs << " libs utilizing " << active_threads << " thread(s)\r" << std::flush;
+				} else {
+					if (is_active) {
+						is_active = false;
+						active_threads--;
+					}
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				}
+			}
+			return symbol_map;
+		};
+		while (--jobs) {
+			threads.push_back(std::async(std::launch::async, thread_handler));
+		}
+		auto symbol_map = thread_handler();
+		std::cout << "done scanning\n" << std::flush;
+		for (auto &t : threads) {
+			t.get();
+			continue;
+			for (auto &p : t.get()) {
+				symbol_map[p.first] += symbol_map[p.second];
+			}
+		}
+		return 0;
+
 		boost::filesystem::create_directory(data_base_path);
 		std::ofstream db_file(data_base_file, std::ios_base::out);
 		if (!db_file) {
 			std::cerr << "failed opening database file " << data_base_file << '\n';
 			return -1;
 		}
-		create_database(db_file, libdirs);
+		create_database(db_file, symbol_map);
 	}
 	if (variables_map.count("symbol")) {
 		const auto &files = lookup(variables_map["symbol"].as<std::string>());
