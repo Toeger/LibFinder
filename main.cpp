@@ -21,6 +21,9 @@ using Map = std::map<std::string, std::string>;
 static std::atomic<int> symbols{0};
 
 static std::mutex popen_mutex;
+
+enum class Symbol_prefix { include, exclude };
+
 std::string get_output_from_command(std::experimental::string_view command) {
 	assert(command.data());
 	std::unique_ptr<FILE, decltype(pclose) *> fp{nullptr, &pclose};
@@ -82,7 +85,7 @@ void add_to_database(Map &symbol_file_map, const std::experimental::string_view 
 	}
 }
 
-const char *symbol_lookup(std::experimental::string_view data, std::experimental::string_view symbol) {
+const char *symbol_lookup(std::experimental::string_view data, std::experimental::string_view symbol, Symbol_prefix sp) {
 	auto clean_pos = [](const char *&data) {
 		while (data[-1] != '$') {
 			data--;
@@ -141,19 +144,19 @@ const char *symbol_lookup(std::experimental::string_view data, std::experimental
 		return nullptr;
 	}
 	auto result = rest.data() + pos + symbol.size();
-	if (*result != ':') {
-		//just found a prefix
-		return nullptr;
+	if (*result != ':') { //found a prefix
+		if (sp == Symbol_prefix::include)
+			return result + 1;
 	}
 	return result + 1;
 }
 
-std::vector<std::string> lookup(std::experimental::string_view symbol) {
+std::vector<std::string> lookup(std::experimental::string_view symbol, Symbol_prefix sp) {
 	std::vector<std::string> retval;
 	boost::interprocess::file_mapping file(data_base_file.c_str(), boost::interprocess::read_only);
 	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
 	std::experimental::string_view data(static_cast<const char *>(region.get_address()), region.get_size());
-	auto files = symbol_lookup(data, symbol);
+	auto files = symbol_lookup(data, symbol, sp);
 	if (files) {
 		auto files_end = files;
 		while (*++files_end != '$') {
@@ -175,6 +178,7 @@ int main(int argc, char *argv[]) {
 	int jobs = 0;
 	options.add_options()("help,h", "print this")("update,u", "update lookup table")("symbol,s", boost::program_options::value<std::string>(),
 																					 "the symbol to look up")(
+		"prefix,p", boost::program_options::value<std::string>(), "find libraries that have a symbol starting with the given argument")(
 		"jobs,j", boost::program_options::value<int>(&jobs)->default_value(1), "specify the maximum number of threads to use, must be at least 1");
 	boost::program_options::variables_map variables_map;
 	try {
@@ -242,7 +246,15 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	if (variables_map.count("symbol")) {
-		auto files = lookup(variables_map["symbol"].as<std::string>());
+		auto files = lookup(variables_map["symbol"].as<std::string>(), Symbol_prefix::exclude);
+		std::sort(std::begin(files), std::end(files));
+		for (auto &file : files) {
+			std::cout << file << '\n';
+		}
+		return 0; //avoid double newline at end of output
+	}
+	if (variables_map.count("prefix")) {
+		auto files = lookup(variables_map["prefix"].as<std::string>(), Symbol_prefix::include);
 		std::sort(std::begin(files), std::end(files));
 		for (auto &file : files) {
 			std::cout << file << '\n';
