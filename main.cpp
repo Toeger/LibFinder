@@ -27,9 +27,33 @@ enum class Search_type { exact, prefix };
 using string_view = std::experimental::string_view;
 
 static const auto entry_separator = '\0'; //must be illegal in symbol names and paths
-static const auto file_separator = '\1'; //must be illegal in paths
+static const auto file_separator = '\1';  //must be illegal in paths
 
-std::string get_output_from_command(string_view command) {
+template <class T>
+struct Sorted_Vector_Adapter {
+	//insert objects into a vector while keeping it sorted
+	Sorted_Vector_Adapter(std::vector<T> &v)
+		: v(v) {}
+	template <class... Args>
+	void insert(Args... args) {
+		T t{args...};
+		auto it = std::lower_bound(std::begin(v), std::end(v), t);
+		if (it == std::end(v) || *it != t) {
+			v.insert(it, std::move(t));
+		}
+	}
+
+	private:
+	std::vector<T> &v;
+};
+
+template <class T>
+struct Sorted_Vector_Adapter<T> make_sorted_vector_adapter(std::vector<T> &v) {
+	return {v};
+}
+
+std::string
+get_output_from_command(string_view command) {
 	assert(command.data());
 	std::unique_ptr<FILE, decltype(pclose) *> fp{nullptr, &pclose};
 	{
@@ -139,22 +163,21 @@ const char *symbol_lookup(string_view data, string_view symbol, Search_type st) 
 			left = mid;
 		}
 	}
+	while (*right++ != file_separator) {
+	}
 	string_view rest(left, right - left);
 	auto pos = rest.find(symbol);
 	if (pos == rest.npos) {
 		//didn't find it
 		return nullptr;
 	}
-	auto result = rest.data() + pos + symbol.size();
-	if (*result != file_separator) { //found a prefix
+	auto result = rest.data() + pos;
+	if (result[symbol.size()] != file_separator) { //found a prefix
 		if (st != Search_type::prefix) {
 			return nullptr;
 		}
-		while (*result != file_separator){
-			result++;
-		}
 	}
-	return result + 1;
+	return result;
 }
 
 std::vector<std::string> lookup(string_view symbol, Search_type st) {
@@ -164,13 +187,32 @@ std::vector<std::string> lookup(string_view symbol, Search_type st) {
 	string_view data(static_cast<const char *>(region.get_address()), region.get_size());
 	auto files = symbol_lookup(data, symbol, st);
 	if (files) {
-		auto files_end = files;
-		while (*++files_end != entry_separator) {
-		}
-		string_view all_files(files, files_end - files);
-		for (auto pos = all_files.find(file_separator); pos != all_files.npos; pos = all_files.find(file_separator)) {
-			retval.emplace_back(all_files.data(), pos);
-			all_files.remove_prefix(pos + 1);
+		auto sva = make_sorted_vector_adapter(retval);
+		auto save_files = [&sva](const char *files) {
+			while (*files++ != file_separator) {
+			}
+			auto files_end = files;
+			while (*++files_end != entry_separator) {
+			}
+			string_view all_files(files, files_end - files);
+			for (auto pos = all_files.find(file_separator); pos != all_files.npos; pos = all_files.find(file_separator)) {
+				sva.insert(all_files.data(), pos);
+				all_files.remove_prefix(pos + 1);
+			}
+			sva.insert(all_files.data(), all_files.size());
+			return files_end;
+		};
+		switch (st) {
+			case Search_type::exact: {
+				save_files(files);
+				break;
+			}
+			case Search_type::prefix: {
+				do {
+					files = save_files(files) + 1;
+				} while (string_view(files, symbol.size()) == symbol);
+				break;
+			}
 		}
 	}
 	return retval;
@@ -178,7 +220,8 @@ std::vector<std::string> lookup(string_view symbol, Search_type st) {
 
 int main(int argc, char *argv[]) {
 	boost::program_options::options_description options(
-		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder "
+		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with "
+		"'libfinder "
 		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "
 		"[symbol].\nParameters");
 	int jobs = 0;
@@ -252,7 +295,9 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	if (variables_map.count("symbol")) {
-		auto files = lookup(variables_map["symbol"].as<std::string>(), Search_type::exact);
+		const auto &symbol = variables_map["symbol"].as<std::string>();
+		std::cout << "All libraries that contain the exact symbol \"" << symbol << "\":\n";
+		auto files = lookup(symbol, Search_type::exact);
 		std::sort(std::begin(files), std::end(files));
 		for (auto &file : files) {
 			std::cout << file << '\n';
@@ -260,8 +305,9 @@ int main(int argc, char *argv[]) {
 		return 0; //avoid double newline at end of output
 	}
 	if (variables_map.count("prefix")) {
-		auto files = lookup(variables_map["prefix"].as<std::string>(), Search_type::prefix);
-		std::sort(std::begin(files), std::end(files));
+		const auto &prefix = variables_map["prefix"].as<std::string>();
+		std::cout << "All libraries that contain the prefix \"" << prefix << "\" in any of their symbols:\n";
+		auto files = lookup(prefix, Search_type::prefix);
 		for (auto &file : files) {
 			std::cout << file << '\n';
 		}
