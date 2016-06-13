@@ -30,9 +30,9 @@ static const auto entry_separator = '\0'; //must be illegal in symbol names and 
 static const auto file_separator = '\1';  //must be illegal in paths
 
 template <class T>
-struct Sorted_Vector_Adapter {
+struct Set_Adapter {
 	//insert objects into a vector while keeping it sorted
-	Sorted_Vector_Adapter(std::vector<T> &v)
+	Set_Adapter(std::vector<T> &v)
 		: v(v) {}
 	template <class... Args>
 	void insert(Args... args) {
@@ -48,7 +48,7 @@ struct Sorted_Vector_Adapter {
 };
 
 template <class T>
-struct Sorted_Vector_Adapter<T> make_sorted_vector_adapter(std::vector<T> &v) {
+struct Set_Adapter<T> make_set_adapter(std::vector<T> &v) {
 	return {v};
 }
 
@@ -187,7 +187,7 @@ std::vector<std::string> lookup(string_view symbol, Search_type st) {
 	string_view data(static_cast<const char *>(region.get_address()), region.get_size());
 	auto files = symbol_lookup(data, symbol, st);
 	if (files) {
-		auto sva = make_sorted_vector_adapter(retval);
+		auto sva = make_set_adapter(retval);
 		auto save_files = [&sva](const char *files) {
 			while (*files++ != file_separator) {
 			}
