@@ -22,9 +22,14 @@ static std::atomic<int> symbols{0};
 
 static std::mutex popen_mutex;
 
-enum class Symbol_prefix { include, exclude };
+enum class Search_type { exact, prefix };
 
-std::string get_output_from_command(std::experimental::string_view command) {
+using string_view = std::experimental::string_view;
+
+static const auto entry_separator = '\0'; //must be illegal in symbol names and paths
+static const auto file_separator = '\1'; //must be illegal in paths
+
+std::string get_output_from_command(string_view command) {
 	assert(command.data());
 	std::unique_ptr<FILE, decltype(pclose) *> fp{nullptr, &pclose};
 	{
@@ -55,7 +60,7 @@ static const auto data_base_path = [] {
 }();
 static const auto data_base_file = data_base_path + "/database"; //TODO: find a way to share the database between users
 
-void add_to_database(Map &symbol_file_map, const std::experimental::string_view file_path) {
+void add_to_database(Map &symbol_file_map, const string_view file_path) {
 	std::stringstream ss(get_output_from_command(std::string("objdump -TCw  ") + file_path.data()));
 	std::string line;
 	std::getline(ss, line); //empty line
@@ -72,22 +77,22 @@ void add_to_database(Map &symbol_file_map, const std::experimental::string_view 
 		return;
 	}
 	while (std::getline(ss, line)) {
-		if (std::experimental::string_view(line.data() + linit, 5) != ".text") {
+		if (string_view(line.data() + linit, 5) != ".text") {
 			continue;
 		}
 		auto symbol_pos = line.data() + rinit - 1;
 		while (*symbol_pos++ != ' ') {
 		}
 		auto &entry = symbol_file_map[symbol_pos];
-		entry.push_back(':');
+		entry.push_back(file_separator);
 		entry += file_path.data();
 		symbols++;
 	}
 }
 
-const char *symbol_lookup(std::experimental::string_view data, std::experimental::string_view symbol, Symbol_prefix sp) {
+const char *symbol_lookup(string_view data, string_view symbol, Search_type st) {
 	auto clean_pos = [](const char *&data) {
-		while (data[-1] != '$') {
+		while (data[-1] != entry_separator) {
 			data--;
 		}
 	};
@@ -134,35 +139,36 @@ const char *symbol_lookup(std::experimental::string_view data, std::experimental
 			left = mid;
 		}
 	}
-	if (std::experimental::string_view(right, symbol.size()) == symbol) {
-		return right + symbol.size() + 1;
-	}
-	std::experimental::string_view rest(left, right - left);
+	string_view rest(left, right - left);
 	auto pos = rest.find(symbol);
 	if (pos == rest.npos) {
 		//didn't find it
 		return nullptr;
 	}
 	auto result = rest.data() + pos + symbol.size();
-	if (*result != ':') { //found a prefix
-		if (sp == Symbol_prefix::include)
-			return result + 1;
+	if (*result != file_separator) { //found a prefix
+		if (st != Search_type::prefix) {
+			return nullptr;
+		}
+		while (*result != file_separator){
+			result++;
+		}
 	}
 	return result + 1;
 }
 
-std::vector<std::string> lookup(std::experimental::string_view symbol, Symbol_prefix sp) {
+std::vector<std::string> lookup(string_view symbol, Search_type st) {
 	std::vector<std::string> retval;
 	boost::interprocess::file_mapping file(data_base_file.c_str(), boost::interprocess::read_only);
 	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
-	std::experimental::string_view data(static_cast<const char *>(region.get_address()), region.get_size());
-	auto files = symbol_lookup(data, symbol, sp);
+	string_view data(static_cast<const char *>(region.get_address()), region.get_size());
+	auto files = symbol_lookup(data, symbol, st);
 	if (files) {
 		auto files_end = files;
-		while (*++files_end != '$') {
+		while (*++files_end != entry_separator) {
 		}
-		std::experimental::string_view all_files(files, files_end - files);
-		for (auto pos = all_files.find(':'); pos != all_files.npos; pos = all_files.find(':')) {
+		string_view all_files(files, files_end - files);
+		for (auto pos = all_files.find(file_separator); pos != all_files.npos; pos = all_files.find(file_separator)) {
 			retval.emplace_back(all_files.data(), pos);
 			all_files.remove_prefix(pos + 1);
 		}
@@ -242,11 +248,11 @@ int main(int argc, char *argv[]) {
 			return -1;
 		}
 		for (auto &p : symbol_map) {
-			db_file << '$' << p.first << p.second;
+			db_file << entry_separator << p.first << p.second;
 		}
 	}
 	if (variables_map.count("symbol")) {
-		auto files = lookup(variables_map["symbol"].as<std::string>(), Symbol_prefix::exclude);
+		auto files = lookup(variables_map["symbol"].as<std::string>(), Search_type::exact);
 		std::sort(std::begin(files), std::end(files));
 		for (auto &file : files) {
 			std::cout << file << '\n';
@@ -254,7 +260,7 @@ int main(int argc, char *argv[]) {
 		return 0; //avoid double newline at end of output
 	}
 	if (variables_map.count("prefix")) {
-		auto files = lookup(variables_map["prefix"].as<std::string>(), Symbol_prefix::include);
+		auto files = lookup(variables_map["prefix"].as<std::string>(), Search_type::prefix);
 		std::sort(std::begin(files), std::end(files));
 		for (auto &file : files) {
 			std::cout << file << '\n';
