@@ -17,7 +17,62 @@ static const auto data_base_path = [] {
 	username.pop_back(); //remove newline
 	return "/home/" + username + "/.libfinder";
 }();
-const std::string data_base_file = data_base_path + "/database"; //TODO: find a way to share the database between users
+
+//TODO: find a way to share the files between users
+const std::string data_base_filepath = data_base_path + "/database";
+const std::string index_filepath = data_base_path + "/database_index";
+
+static void update(int jobs){
+	Thread_safe_queue<std::string> lib_file_paths;
+	std::atomic<int> libs{0};
+	{
+		auto &queue = lib_file_paths.not_thread_safe_get();
+		std::istringstream is(get_output_from_command("locate .so"));
+		for (std::string line; std::getline(is, line);) {
+			if (line.rfind('/') < line.rfind(".so")) {
+				queue.push(std::move(line));
+			}
+		}
+	}
+	const int total_libs = lib_file_paths.size();
+
+	std::vector<std::future<Map>> threads;
+	std::mutex printer;
+
+	auto thread_handler = [&printer, &lib_file_paths, &libs, total_libs] {
+		Map symbol_map;
+		while (!lib_file_paths.empty()) {
+			auto lib_paths = lib_file_paths.pop_n(100);
+			for (auto &lib_path : lib_paths) {
+				auto added_symbols = add_to_database(symbol_map, lib_path);
+				std::lock_guard<std::mutex> lock(printer);
+				symbols += added_symbols;
+				std::cout << "found " << symbols << " symbols in " << ++libs << "/" << total_libs << " libs\r" << std::flush;
+			}
+		}
+		return symbol_map;
+	};
+	threads.reserve(jobs - 1);
+	while (--jobs) {
+		threads.push_back(std::async(std::launch::async, thread_handler));
+	}
+	auto symbol_map = thread_handler();
+	for (auto &t : threads) {
+		for (auto &p : t.get()) {
+			symbol_map[p.first] += p.second;
+		}
+	}
+
+	boost::filesystem::create_directory(data_base_path);
+	std::ofstream db_file(data_base_filepath, std::ios_base::out);
+	if (!db_file) {
+		std::cerr << "failed opening database file " << data_base_filepath;
+		return;
+	}
+	for (auto &p : symbol_map) {
+		db_file << entry_separator << p.first << p.second;
+	}
+}
 
 int main(int argc, char *argv[]) {
 	boost::program_options::options_description options(
@@ -45,55 +100,9 @@ int main(int argc, char *argv[]) {
 	if (variables_map.count("help")) {
 		std::cout << options;
 	}
-	if (variables_map.count("update")) {
-		Thread_safe_queue<std::string> lib_file_paths;
-		std::atomic<int> libs{0};
-		{
-			auto &queue = lib_file_paths.not_thread_safe_get();
-			std::istringstream is(get_output_from_command("locate .so"));
-			for (std::string line; std::getline(is, line);) {
-				if (line.rfind('/') < line.rfind(".so")) {
-					queue.push(std::move(line));
-				}
-			}
-		}
-		const int total_libs = lib_file_paths.size();
-
-		std::vector<std::future<Map>> threads;
-		std::mutex printer;
-
-		auto thread_handler = [&printer, &lib_file_paths, &libs, total_libs] {
-			Map symbol_map;
-			while (!lib_file_paths.empty()) {
-				auto lib_paths = lib_file_paths.pop_n(100);
-				for (auto &lib_path : lib_paths) {
-					std::lock_guard<std::mutex> lock(printer);
-					symbols += add_to_database(symbol_map, lib_path);
-					std::cout << "found " << symbols << " symbols in " << ++libs << "/" << total_libs << " libs\r" << std::flush;
-				}
-			}
-			return symbol_map;
-		};
-		threads.reserve(jobs - 1);
-		while (--jobs) {
-			threads.push_back(std::async(std::launch::async, thread_handler));
-		}
-		auto symbol_map = thread_handler();
-		for (auto &t : threads) {
-			for (auto &p : t.get()) {
-				symbol_map[p.first] += p.second;
-			}
-		}
-
-		boost::filesystem::create_directory(data_base_path);
-		std::ofstream db_file(data_base_file, std::ios_base::out);
-		if (!db_file) {
-			std::cerr << "failed opening database file " << data_base_file << '\n';
-			return -1;
-		}
-		for (auto &p : symbol_map) {
-			db_file << entry_separator << p.first << p.second;
-		}
+	if (variables_map.count("update"))
+	{
+		update(jobs);
 	}
 	if (variables_map.count("symbol")) {
 		const auto &symbol = variables_map["symbol"].as<std::string>();

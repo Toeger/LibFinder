@@ -102,7 +102,7 @@ symbol_lookup(string_view data, string_view symbol, Search_type st) {
 
 std::vector<std::string> lookup(string_view symbol, Search_type st) {
 	std::vector<std::string> retval;
-	boost::interprocess::file_mapping file(data_base_file.c_str(), boost::interprocess::read_only);
+	boost::interprocess::file_mapping file(data_base_filepath.c_str(), boost::interprocess::read_only);
 	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
 	string_view data(static_cast<const char *>(region.get_address()), region.get_size());
 	auto files = symbol_lookup(data, symbol, st);
