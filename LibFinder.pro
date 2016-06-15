@@ -3,10 +3,17 @@ CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
 
-SOURCES += main.cpp
+SOURCES += main.cpp \
+    lookup.cpp \
+    generate.cpp \
+    utility.cpp
 
 HEADERS += \
-    thread_safe_queue.h
+    thread_safe_queue.h \
+    lookup.h \
+    main.h \
+    generate.h \
+    utility.h
 
 LIBS += -lpthread
 LIBS += -lboost_system
