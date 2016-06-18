@@ -12,8 +12,6 @@ using string_view = std::experimental::string_view;
 static const auto entry_separator = '\0'; //must be illegal in symbol names and paths
 static const auto file_separator = '\1';  //must be illegal in paths
 
-enum class Search_type { exact, prefix };
-
 extern const std::string data_base_filepath;
 extern const std::string index_filepath;
 

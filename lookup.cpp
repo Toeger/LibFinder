@@ -1,10 +1,13 @@
 #include "lookup.h"
 #include "main.h"
+#include "utility.h"
 
+#include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
 #include <cassert>
 #include <experimental/string_view>
+#include <fstream>
 #include <set>
 #include <vector>
 
@@ -29,111 +32,142 @@ struct Set_Adapter {
 };
 
 template <class T>
-struct Set_Adapter<T> make_set_adapter(std::vector<T> &v) {
+static struct Set_Adapter<T> make_set_adapter(std::vector<T> &v) {
 	return {v};
 }
 
-const char *
-symbol_lookup(string_view data, string_view symbol, Search_type st) {
-	auto clean_pos = [](const char *&data) {
-		while (data[-1] != entry_separator) {
-			data--;
+struct File_content_iterator {
+	File_content_iterator(const int *ip)
+		: ip(ip) {}
+	std::string operator*() {
+		assert(ip);
+		std::string retval;
+		file.seekg(*ip);
+		if (!std::getline(file, retval, file_separator)) {
+			throw std::runtime_error("Failed reading file");
 		}
+		return retval;
+	}
+	Symbol_lib_entry get_element() {
+		std::string retval;
+		file.seekg(*ip);
+		if (!std::getline(file, retval, entry_separator)) {
+			throw std::runtime_error("Failed reading file");
+		}
+		return {std::move(retval)};
+	}
+	File_content_iterator &operator++() {
+		++ip;
+		return *this;
+	}
+	File_content_iterator &operator+=(long int offset) {
+		ip += offset;
+		return *this;
+	}
+
+	static std::ifstream file;
+	const int *ip = nullptr;
+};
+
+namespace std {
+	template <>
+	struct iterator_traits<File_content_iterator> {
+		using iterator_category = random_access_iterator_tag;
+		using value_type = std::string;
+		using difference_type = std::iterator_traits<int *>::difference_type;
 	};
-
-	auto estimate_position = [](const char *left, const char *right, const char *to_estimate) {
-		while (*left == *right) {
-			left++;
-			right++;
-			to_estimate++;
-		}
-		auto get_value = [](const char *p) {
-			auto get_number = [](char c) -> int { return std::min(std::max(c - ' ', 0), 'z' + 0); };
-			return get_number(p[0]) * 90 * 90 + get_number(p[1]) * 90 + get_number(p[2]);
-		};
-
-		auto left_value = get_value(left);
-		auto right_value = get_value(right);
-		auto estimate_value = get_value(to_estimate);
-		assert(left_value <= estimate_value);
-		assert(estimate_value <= right_value);
-		if (left_value == right_value) {
-			return left;
-		}
-		return left + (right - left) * (estimate_value - left_value) / (right_value - left_value);
-	};
-
-	auto left = data.data() + 1;
-	auto right = data.data() + data.size() - 1;
-	clean_pos(right);
-	while (right - left > 1000) {
-		auto mid = estimate_position(left, right, symbol.data());
-		clean_pos(mid);
-		if (symbol < mid) {
-			right = mid;
-		} else {
-			left = mid;
-		}
-		//add a binary search component to prevent O(n) degradation
-		mid = left + (right - left) / 2;
-		clean_pos(mid);
-		if (symbol < mid) {
-			right = mid;
-		} else {
-			left = mid;
-		}
-	}
-	while (*right++ != file_separator) {
-	}
-	string_view rest(left, right - left);
-	auto pos = rest.find(symbol);
-	if (pos == rest.npos) {
-		//didn't find it
-		return nullptr;
-	}
-	auto result = rest.data() + pos;
-	if (result[symbol.size()] != file_separator) { //found a prefix
-		if (st != Search_type::prefix) {
-			return nullptr;
-		}
-	}
-	return result;
 }
 
-std::vector<std::string> lookup(string_view symbol, Search_type st) {
-	std::vector<std::string> retval;
-	boost::interprocess::file_mapping file(data_base_filepath.c_str(), boost::interprocess::read_only);
-	boost::interprocess::mapped_region region(file, boost::interprocess::read_only);
-	string_view data(static_cast<const char *>(region.get_address()), region.get_size());
-	auto files = symbol_lookup(data, symbol, st);
-	if (files) {
-		auto sva = make_set_adapter(retval);
-		auto save_files = [&sva](const char *files) {
-			while (*files++ != file_separator) {
-			}
-			auto files_end = files;
-			while (*++files_end != entry_separator) {
-			}
-			string_view all_files(files, files_end - files);
-			for (auto pos = all_files.find(file_separator); pos != all_files.npos; pos = all_files.find(file_separator)) {
-				sva.insert(all_files.data(), pos);
-				all_files.remove_prefix(pos + 1);
-			}
-			sva.insert(all_files.data(), all_files.size());
-			return files_end;
-		};
-		switch (st) {
-			case Search_type::exact: {
-				save_files(files);
-				break;
-			}
-			case Search_type::prefix: {
-				do {
-					files = save_files(files) + 1;
-				} while (string_view(files, symbol.size()) == symbol);
-				break;
-			}
+std::ifstream File_content_iterator::file;
+
+bool operator<(const File_content_iterator &lhs, const File_content_iterator &rhs) {
+	return lhs.ip < rhs.ip;
+}
+
+auto operator-(const File_content_iterator &lhs, const File_content_iterator &rhs) {
+	return lhs.ip - rhs.ip;
+}
+
+template <class Function>
+struct RAII {
+	RAII(Function &&f)
+		: f(std::move(f)) {}
+	~RAII() {
+		std::move(f)();
+	}
+
+	private:
+	Function f;
+};
+
+template <class T>
+using remove_cvr = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template <class Function>
+RAII<Function> create_RAII(Function &&f) {
+	return RAII<remove_cvr<Function>>(std::forward<Function>(f));
+}
+#define ON_SCOPE_EXIT_CAT(a, b) ON_SCOPE_EXIT_CAT_(a, b) // force expand
+#define ON_SCOPE_EXIT_CAT_(a, b) a##b                    // actually concatenate
+#define ON_SCOPE_EXIT(CODE) auto ON_SCOPE_EXIT_CAT(ON_SCOPE_EXIT_, __LINE__) = create_RAII([&]() { CODE })
+
+enum class Search_type { exact, prefix };
+
+static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) {
+	std::vector<int> indexes;
+	{
+		int index_size = boost::filesystem::file_size(index_filepath);
+		indexes.resize(index_size / sizeof(int));
+		std::ifstream index_file(index_filepath, std::ios_base::in | std::ios::binary);
+		index_file.read(any_cast<char *>(indexes.data()), index_size);
+		assert(index_file);
+		if (!index_file) {
+			throw std::runtime_error("Failed reading index file");
 		}
 	}
+	File_content_iterator::file.open(data_base_filepath, std::ios_base::in | std::ios::binary);
+	ON_SCOPE_EXIT(File_content_iterator::file.close(););
+
+	//TODO: replace lower_bound with binary_interpolation_search
+	auto index_begin = indexes.data();
+	auto index_end = indexes.data() + indexes.size();
+	auto pos = std::lower_bound(File_content_iterator{index_begin}, File_content_iterator{index_end}, symbol);
+	if (pos.ip == index_end)
+		return {};
+	auto value = pos.get_element();
+	if (st == Search_type::exact) {
+		if (value.get_symbol() == symbol)
+			return {std::move(value)};
+		return {};
+	}
+	std::vector<Symbol_lib_entry> retval;
+	while (value.get_symbol().find(symbol) == 0) {
+		retval.push_back(std::move(value));
+		++pos;
+		if (pos.ip == index_end)
+			return retval;
+		value = pos.get_element();
+	}
 	return retval;
+}
+
+std::vector<std::string> exact_lookup(string_view symbol)
+{
+	auto symbols = lookup(symbol, Search_type::exact);
+	if (symbols.empty())
+		return {};
+	assert(symbols.size() == 1);
+	std::vector<std::string> retval;
+	const auto &libs = symbols.front().get_libs_view();
+	retval.reserve(libs.size());
+	//std::copy(std::begin(libs), std::end(libs), std::back_inserter(retval));
+	for (auto &lib : libs){
+		retval.emplace_back(lib.data(), lib.size());
+	}
+	return retval;
+}
+
+std::vector<Symbol_lib_entry> prefix_lookup(string_view symbol)
+{
+	return lookup(symbol, Search_type::prefix);
 }

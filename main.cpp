@@ -64,13 +64,16 @@ static void update(int jobs){
 	}
 
 	boost::filesystem::create_directory(data_base_path);
-	std::ofstream db_file(data_base_filepath, std::ios_base::out);
+	std::ofstream db_file(data_base_filepath, std::ios_base::out | std::ios::binary);
+	std::ofstream index_file(index_filepath, std::ios_base::out | std::ios::binary);
 	if (!db_file) {
 		std::cerr << "failed opening database file " << data_base_filepath;
 		return;
 	}
 	for (auto &p : symbol_map) {
-		db_file << entry_separator << p.first << p.second;
+		int index = db_file.tellp();
+		index_file.write(any_cast<const char *>(&index), sizeof index);
+		db_file << p.first << p.second << entry_separator;
 	}
 }
 
@@ -107,7 +110,7 @@ int main(int argc, char *argv[]) {
 	if (variables_map.count("symbol")) {
 		const auto &symbol = variables_map["symbol"].as<std::string>();
 		std::cout << "All libraries that contain the exact symbol \"" << symbol << "\":\n";
-		auto files = lookup(symbol, Search_type::exact);
+		auto files = exact_lookup(symbol);
 		std::sort(std::begin(files), std::end(files));
 		for (auto &file : files) {
 			std::cout << file << '\n';
@@ -117,9 +120,14 @@ int main(int argc, char *argv[]) {
 	if (variables_map.count("prefix")) {
 		const auto &prefix = variables_map["prefix"].as<std::string>();
 		std::cout << "All libraries that contain the prefix \"" << prefix << "\" in any of their symbols:\n";
-		auto files = lookup(prefix, Search_type::prefix);
-		for (auto &file : files) {
-			std::cout << file << '\n';
+		auto symbols = prefix_lookup(prefix);
+		for (auto &symbol : symbols) {
+			std::cout << symbol.get_symbol() << '\n';
+			auto libs = symbol.get_libs_view();
+			std::sort(std::begin(libs), std::end(libs));
+			for (auto &lib : libs){
+				std::cout << '\t' << lib << '\n';
+			}
 		}
 		return 0; //avoid double newline at end of output
 	}
