@@ -1,4 +1,5 @@
-#pragma once
+#ifndef THREAD_SAFE_QUEUE_H
+#define THREAD_SAFE_QUEUE_H
 
 #include <algorithm>
 #include <mutex>
@@ -50,3 +51,5 @@ struct Thread_safe_queue {
 	mutable std::mutex qm;
 	std::queue<T> q;
 };
+
+#endif

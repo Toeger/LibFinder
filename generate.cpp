@@ -2,9 +2,9 @@
 #include "main.h"
 #include "utility.h"
 
+#include <cassert>
 #include <sstream>
 #include <string>
-#include <cassert>
 
 int add_to_database(Map &symbol_file_map, const string_view file_path) {
 	int symbols = 0;
@@ -27,10 +27,10 @@ int add_to_database(Map &symbol_file_map, const string_view file_path) {
 		if (string_view(line.data() + linit, 5) == "*UND*") {
 			continue;
 		}
-		auto symbol_pos = line.data() + rinit - 2;
+		auto symbol_pos = line.data() + rinit - 3;
 		while (*symbol_pos++ != ' ') {
 		}
-		while (*symbol_pos == ' '){
+		while (*symbol_pos == ' ') {
 			symbol_pos++;
 		}
 		auto &entry = symbol_file_map[symbol_pos];

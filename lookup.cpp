@@ -132,42 +132,44 @@ static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) 
 	auto index_begin = indexes.data();
 	auto index_end = indexes.data() + indexes.size();
 	auto pos = std::lower_bound(File_content_iterator{index_begin}, File_content_iterator{index_end}, symbol);
-	if (pos.ip == index_end)
+	if (pos.ip == index_end) {
 		return {};
+	};
 	auto value = pos.get_element();
 	if (st == Search_type::exact) {
-		if (value.get_symbol() == symbol)
+		if (value.get_symbol() == symbol) {
 			return {std::move(value)};
+		};
 		return {};
 	}
 	std::vector<Symbol_lib_entry> retval;
 	while (value.get_symbol().find(symbol) == 0) {
 		retval.push_back(std::move(value));
 		++pos;
-		if (pos.ip == index_end)
+		if (pos.ip == index_end) {
 			return retval;
+		}
 		value = pos.get_element();
 	}
 	return retval;
 }
 
-std::vector<std::string> exact_lookup(string_view symbol)
-{
+std::vector<std::string> exact_lookup(string_view symbol) {
 	auto symbols = lookup(symbol, Search_type::exact);
-	if (symbols.empty())
+	if (symbols.empty()) {
 		return {};
+	};
 	assert(symbols.size() == 1);
 	std::vector<std::string> retval;
 	const auto &libs = symbols.front().get_libs_view();
 	retval.reserve(libs.size());
 	//std::copy(std::begin(libs), std::end(libs), std::back_inserter(retval));
-	for (auto &lib : libs){
+	for (auto &lib : libs) {
 		retval.emplace_back(lib.data(), lib.size());
 	}
 	return retval;
 }
 
-std::vector<Symbol_lib_entry> prefix_lookup(string_view symbol)
-{
+std::vector<Symbol_lib_entry> prefix_lookup(string_view symbol) {
 	return lookup(symbol, Search_type::prefix);
 }

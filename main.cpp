@@ -1,13 +1,13 @@
 #include "main.h"
 #include "generate.h"
 #include "lookup.h"
+#include "test.h"
 #include "thread_safe_queue.h"
 #include "utility.h"
-#include "test.h"
 
-#include <cassert>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
+#include <cassert>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -24,7 +24,7 @@ static const auto data_base_path = [] {
 const std::string data_base_filepath = data_base_path + "/database";
 const std::string index_filepath = data_base_path + "/database_index";
 
-static void update(int jobs){
+static void update(int jobs) {
 	Thread_safe_queue<std::string> lib_file_paths;
 	std::atomic<int> libs{0};
 	{
@@ -106,8 +106,7 @@ int main(int argc, char *argv[]) {
 	if (variables_map.count("help")) {
 		std::cout << options;
 	}
-	if (variables_map.count("update"))
-	{
+	if (variables_map.count("update")) {
 		update(jobs);
 	}
 	if (variables_map.count("symbol")) {
@@ -129,7 +128,7 @@ int main(int argc, char *argv[]) {
 			auto libs = symbol.get_libs_view();
 			std::sort(std::begin(libs), std::end(libs));
 			libs.erase(std::unique(std::begin(libs), std::end(libs)), std::end(libs));
-			for (auto &lib : libs){
+			for (auto &lib : libs) {
 				std::cout << '\t' << lib << '\n';
 			}
 		}
