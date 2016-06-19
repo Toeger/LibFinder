@@ -122,12 +122,13 @@ int main(int argc, char *argv[]) {
 	}
 	if (variables_map.count("prefix")) {
 		const auto &prefix = variables_map["prefix"].as<std::string>();
-		std::cout << "All libraries that contain the prefix \"" << prefix << "\" in any of their symbols:\n";
+		std::cout << "All symbols that have the prefix \"" << prefix << "\" and their libraries:\n";
 		auto symbols = prefix_lookup(prefix);
 		for (auto &symbol : symbols) {
 			std::cout << symbol.get_symbol() << '\n';
 			auto libs = symbol.get_libs_view();
 			std::sort(std::begin(libs), std::end(libs));
+			libs.erase(std::unique(std::begin(libs), std::end(libs)), std::end(libs));
 			for (auto &lib : libs){
 				std::cout << '\t' << lib << '\n';
 			}
