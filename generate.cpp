@@ -5,7 +5,6 @@
 #include <sstream>
 #include <string>
 #include <cassert>
-#include <iostream>
 
 int add_to_database(Map &symbol_file_map, const string_view file_path) {
 	int symbols = 0;
@@ -25,8 +24,6 @@ int add_to_database(Map &symbol_file_map, const string_view file_path) {
 		return symbols;
 	}
 	while (std::getline(ss, line)) {
-		if (line.find("boost::program_options::arg") != std::string::npos)
-			std::cout << line << '\n';
 		if (string_view(line.data() + linit, 5) == "*UND*") {
 			continue;
 		}
