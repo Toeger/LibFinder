@@ -6,14 +6,16 @@ CONFIG -= qt
 SOURCES += main.cpp \
     lookup.cpp \
     generate.cpp \
-    utility.cpp
+    utility.cpp \
+    test.cpp
 
 HEADERS += \
     thread_safe_queue.h \
     lookup.h \
     main.h \
     generate.h \
-    utility.h
+    utility.h \
+    test.h
 
 LIBS += -lpthread
 LIBS += -lboost_system

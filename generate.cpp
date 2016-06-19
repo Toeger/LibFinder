@@ -4,6 +4,8 @@
 
 #include <sstream>
 #include <string>
+#include <cassert>
+#include <iostream>
 
 int add_to_database(Map &symbol_file_map, const string_view file_path) {
 	int symbols = 0;
@@ -23,11 +25,16 @@ int add_to_database(Map &symbol_file_map, const string_view file_path) {
 		return symbols;
 	}
 	while (std::getline(ss, line)) {
-		if (string_view(line.data() + linit, 5) != ".text") {
+		if (line.find("boost::program_options::arg") != std::string::npos)
+			std::cout << line << '\n';
+		if (string_view(line.data() + linit, 5) == "*UND*") {
 			continue;
 		}
-		auto symbol_pos = line.data() + rinit - 1;
+		auto symbol_pos = line.data() + rinit - 2;
 		while (*symbol_pos++ != ' ') {
+		}
+		while (*symbol_pos == ' '){
+			symbol_pos++;
 		}
 		auto &entry = symbol_file_map[symbol_pos];
 		entry.push_back(file_separator);

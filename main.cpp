@@ -3,7 +3,9 @@
 #include "lookup.h"
 #include "thread_safe_queue.h"
 #include "utility.h"
+#include "test.h"
 
+#include <cassert>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 #include <fstream>
@@ -78,6 +80,7 @@ static void update(int jobs){
 }
 
 int main(int argc, char *argv[]) {
+	assert(test());
 	boost::program_options::options_description options(
 		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with "
 		"'libfinder "
