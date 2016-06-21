@@ -2,6 +2,7 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
+CONFIG += c++1z
 
 SOURCES += main.cpp \
     lookup.cpp \
@@ -39,3 +40,6 @@ gcc{
         QMAKE_LFLAGS_RELEASE += -flto
     }
 }
+
+DISTFILES += \
+    README.md
