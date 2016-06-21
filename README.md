@@ -1,12 +1,12 @@
 # LibFinder
 
-**Problem**
+**Problem**  
 You include some system header, compile and you get `undefined reference to X` and now need to hunt down the library you need to link.
 
-**Solution**
+**Solution**  
 You run `sudo updatedb` to update your file location database, then `libfinder -u` to update the lookup table and then `libfinder -s X` and libfinder will tell you which libraries define the symbol you need.
 
-**Further options**
+**Further options**  
 Output of `libfinder -h`:
 
     libfinder finds the libraries that define a given symbol.
@@ -19,7 +19,7 @@ Output of `libfinder -h`:
                                  use) with given number of threads (default=8)
       -s [ --symbol ] arg        the symbol to look up
 
-**Example output**
+**Example output**  
     % libfinder -s mysql_init
     All symbols that have the prefix "mysql_init" and their libraries:
     mysql_init
@@ -33,5 +33,5 @@ Output of `libfinder -h`:
             /usr/lib/x86_64-linux-gnu/libmysqlclient_r.so.18
             /usr/lib/x86_64-linux-gnu/libmysqlclient_r.so.18.1.0
 
-**Future work**
+**Future work**  
 Add an option to instead of printing the file path, print either the linker flags or makefile line or CMakeLists.txt entry or qmake file entry to link that library.
