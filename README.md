@@ -19,5 +19,19 @@ Output of `libfinder -h`:
                                  use) with given number of threads (default=8)
       -s [ --symbol ] arg        the symbol to look up
 
+**Example output**
+    % libfinder -s mysql_init
+    All symbols that have the prefix "mysql_init" and their libraries:
+    mysql_init
+            /usr/lib/x86_64-linux-gnu/libmysqlclient.so.18
+            /usr/lib/x86_64-linux-gnu/libmysqlclient.so.18.1.0
+            /usr/lib/x86_64-linux-gnu/libmysqlclient_r.so.18
+            /usr/lib/x86_64-linux-gnu/libmysqlclient_r.so.18.1.0
+    mysql_init_character_set
+            /usr/lib/x86_64-linux-gnu/libmysqlclient.so.18
+            /usr/lib/x86_64-linux-gnu/libmysqlclient.so.18.1.0
+            /usr/lib/x86_64-linux-gnu/libmysqlclient_r.so.18
+            /usr/lib/x86_64-linux-gnu/libmysqlclient_r.so.18.1.0
+
 **Future work**
 Add an option to instead of printing the file path, print either the linker flags or makefile line or CMakeLists.txt entry or qmake file entry to link that library.
