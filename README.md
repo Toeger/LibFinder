@@ -10,7 +10,9 @@ You run `sudo updatedb` to update your file location database, then `libfinder -
 Output of `libfinder -h`:
 
     libfinder finds the libraries that define a given symbol.
-    Run 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder -u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define [symbol].
+    Run 'sudo updatedb' to make sure all libs are locatable, create an index with
+    'libfinder -u' (once every time your libs change) and look up a symbol with
+    'libfinder -s [symbol]' to get a list of libraries that define [symbol].
     Parameters:
       -h [ --help ]              print this
       -u [ --update ] [=arg(=8)] update lookup table (must be done before first
