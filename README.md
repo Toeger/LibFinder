@@ -19,7 +19,8 @@ Output of `libfinder -h`:
                                  use) with given number of threads (default=8)
       -s [ --symbol ] arg        the symbol to look up
 
-**Example output**  
+**Example output**
+
     % libfinder -s mysql_init
     All symbols that have the prefix "mysql_init" and their libraries:
     mysql_init
