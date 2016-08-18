@@ -116,14 +116,11 @@ enum class Search_type { exact, prefix };
 static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) {
 	std::vector<int> indexes;
 	{
-		int index_size = boost::filesystem::file_size(index_filepath);
+		int index_size = boost::filesystem::file_size(data_base_index_filepath);
 		indexes.resize(index_size / sizeof(int));
-		std::ifstream index_file(index_filepath, std::ios_base::in | std::ios::binary);
+		std::ifstream index_file(data_base_index_filepath, std::ios_base::in | std::ios::binary);
 		index_file.read(any_cast<char *>(indexes.data()), index_size);
 		assert(index_file);
-		if (!index_file) {
-			throw std::runtime_error("Failed reading index file");
-		}
 	}
 	File_content_iterator::file.open(data_base_filepath, std::ios_base::in | std::ios::binary);
 	ON_SCOPE_EXIT(File_content_iterator::file.close(););

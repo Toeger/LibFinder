@@ -18,7 +18,9 @@ const std::string data_base_path = [] {
 
 //TODO: find a way to share the files between users
 const std::string data_base_filepath = data_base_path + "/database";
-const std::string index_filepath = data_base_path + "/database_index";
+const std::string data_base_index_filepath = data_base_path + "/database_index";
+const std::string symbolic_links_filepath = data_base_path + "/links";
+const std::string symbolic_links_index_filepath = data_base_path + "/links_index";
 
 int main(int argc, char *argv[]) {
 	assert(test());
@@ -27,13 +29,14 @@ int main(int argc, char *argv[]) {
 		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "
 		"[symbol].\nParameters");
 	int jobs = 0;
-	const auto hardware_concurrency = std::thread::hardware_concurrency();
+	const int hardware_concurrency = std::thread::hardware_concurrency();
 	const auto update_description =
 		"update lookup table (must be done before first use) with given number of threads (default=" + std::to_string(hardware_concurrency) + ")";
 	options.add_options()                                                                                                        //
 		("help,h", "print this")                                                                                                 //
 		("update,u", boost::program_options::value<int>(&jobs)->implicit_value(hardware_concurrency), update_description.c_str()) //
-		("symbol,s", boost::program_options::value<std::string>(), "the symbol to look up");
+		("symbol,s", boost::program_options::value<std::string>(), "the symbol to look up");//
+		//("output-format,of", boost::program_options::value<std::string>()->default_value("symbol-list"), "Define the output format. Options are \tlist - pr");
 	boost::program_options::variables_map variables_map;
 	try {
 		boost::program_options::store(boost::program_options::parse_command_line(argc, argv, options), variables_map);

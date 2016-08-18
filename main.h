@@ -11,6 +11,8 @@ static const auto file_separator = '\1';  //must be illegal in paths
 
 extern const std::string data_base_path;
 extern const std::string data_base_filepath;
-extern const std::string index_filepath;
+extern const std::string data_base_index_filepath;
+extern const std::string symbolic_links_filepath;
+extern const std::string symbolic_links_index_filepath;
 
 #endif // MAIN_H

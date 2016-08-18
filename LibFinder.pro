@@ -8,7 +8,9 @@ SOURCES += main.cpp \
     lookup.cpp \
     generate.cpp \
     utility.cpp \
-    test.cpp
+    test.cpp \
+    argument_parser.cpp \
+    asserts.cpp
 
 HEADERS += \
     thread_safe_queue.h \
@@ -16,7 +18,10 @@ HEADERS += \
     main.h \
     generate.h \
     utility.h \
-    test.h
+    test.h \
+    argument_parser.h \
+    gsl-lite.h \
+    asserts.h
 
 LIBS += -lpthread
 LIBS += -lboost_system
@@ -24,7 +29,7 @@ LIBS += -lboost_filesystem
 LIBS += -lboost_program_options
 
 QMAKE_CXXFLAGS += -std=c++1z
-QMAKE_CXXFLAGS_DEBUG += -fno-omit-frame-pointer -Wall -Werror -ggdb
+QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -Wfatal-errors
 linux-clang{
     QMAKE_CXXFLAGS_DEBUG += -Wthread-safety -fsanitize=undefined,address#,safe-stack
     QMAKE_LFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
