@@ -3,6 +3,7 @@
 #include "generate.h"
 #include "main.h"
 #include "asserts.h"
+#include "test_radix_tree.h"
 
 #include <cassert>
 
@@ -32,7 +33,7 @@ static void test_symbol_loading() {
 }
 
 bool test() {
-	for (auto &function : {test_reading_arguments, test_symbol_loading}) {
+	for (auto &function : {test_reading_arguments, test_symbol_loading, test_radix_tree}) {
 		function();
 	}
 	return true;

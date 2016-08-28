@@ -24,6 +24,7 @@ const std::string symbolic_links_index_filepath = data_base_path + "/links_index
 
 int main(int argc, char *argv[]) {
 	assert(test());
+	return 0;
 	boost::program_options::options_description options(
 		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder "
 		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "

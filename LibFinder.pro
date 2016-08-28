@@ -10,7 +10,9 @@ SOURCES += main.cpp \
     utility.cpp \
     test.cpp \
     argument_parser.cpp \
-    asserts.cpp
+    asserts.cpp \
+    radix_tree.cpp \
+    test_radix_tree.cpp
 
 HEADERS += \
     thread_safe_queue.h \
@@ -21,7 +23,9 @@ HEADERS += \
     test.h \
     argument_parser.h \
     gsl-lite.h \
-    asserts.h
+    asserts.h \
+    radix_tree.h \
+    test_radix_tree.h
 
 LIBS += -lpthread
 LIBS += -lboost_system
