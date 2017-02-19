@@ -24,7 +24,7 @@ void test_radix_tree()
 			rt.insert(key, "value: " + key);
 		}
 		for (auto &key : test_case){
-			assert_equal(rt.find(key), "value: " + key);
+			assume_equal(rt.find(key), "value: " + key);
 		}
 	}
 	Radix_tree rt;
@@ -33,12 +33,12 @@ void test_radix_tree()
 			rt.insert(key, "value: " + key);
 		}
 		for (auto &key : test_case){
-			assert_equal(rt.find(key), "value: " + key);
+			assume_equal(rt.find(key), "value: " + key);
 		}
 	}
 	for (auto &test_case : test_cases){
 		for (auto &key : test_case){
-			assert_equal(rt.find(key), "value: " + key);
+			assume_equal(rt.find(key), "value: " + key);
 		}
 	}
 }

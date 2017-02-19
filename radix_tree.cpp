@@ -1,7 +1,7 @@
 #include "radix_tree.h"
+#include "asserts.h"
 
 #include <algorithm>
-#include <cassert>
 
 static std::size_t get_common_prefix_length(string_view lhs, string_view rhs) {
 	std::size_t length = 0;
@@ -15,7 +15,7 @@ static std::size_t get_common_prefix_length(string_view lhs, string_view rhs) {
 }
 
 void Radix_tree::insert(string_view key, string_view value) {
-	assert(!key.empty()); //not sure what to do in this case yet
+	assume(!key.empty()); //not sure what to do in this case yet
 	for (auto &child : children) {
 		if (child.key_part.front() == key.front()) {
 			child.insert(key, value);
@@ -26,7 +26,7 @@ void Radix_tree::insert(string_view key, string_view value) {
 }
 
 string_view Radix_tree::find(string_view key) const {
-	assert(!key.empty()); //not sure what to do in this case yet
+	assume(!key.empty()); //not sure what to do in this case yet
 	for (auto &child : children) {
 		if (child.key_part.front() == key.front()) {
 			return child.find(key);
@@ -43,7 +43,7 @@ void Radix_tree::shrink_to_fit() {
 }
 
 void Radix_tree::Node::insert(string_view key, string_view value) {
-	assert(!key.empty());
+	assume(!key.empty());
 	auto common_prefix_length = get_common_prefix_length(key, key_part);
 	if (common_prefix_length > 0 && common_prefix_length < key_part.size()) { //need to split this node
 		split(common_prefix_length);
@@ -88,7 +88,7 @@ string_view Radix_tree::Node::find(string_view key) const {
 }
 
 void Radix_tree::Node::split(std::size_t pos) {
-	assert(pos > 0 && pos < key_part.size());
+	assume(pos > 0 && pos < key_part.size());
 	Node n{{key_part.begin() + pos, key_part.end()}, std::move(value), std::move(children)};
 	value.clear();
 	children.clear();
@@ -100,11 +100,11 @@ void Radix_tree::Node::assert_invariants() const {
 	std::string starts;
 	starts.reserve(children.size());
 	for (auto &child : children) {
-		assert(!child.key_part.empty());
+		assume(!child.key_part.empty());
 		starts.push_back(child.key_part.front());
 	}
 	std::sort(begin(starts), end(starts));
-	assert(std::unique(begin(starts), end(starts)) == end(starts));
+	assume(std::unique(begin(starts), end(starts)) == end(starts));
 }
 
 void Radix_tree::Node::shrink_to_fit() {

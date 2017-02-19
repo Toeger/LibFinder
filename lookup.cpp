@@ -5,7 +5,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
-#include <cassert>
 #include <experimental/string_view>
 #include <fstream>
 #include <set>

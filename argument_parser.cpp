@@ -1,9 +1,9 @@
 #include "argument_parser.h"
+#include "asserts.h"
 #include "gsl-lite.h"
 #include "main.h"
 
 #include <algorithm>
-#include <cassert>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -30,10 +30,10 @@ struct Argument_definition {
 		, is_required(is_required)
 		, has_parameter(has_parameter) {
 		if (has_parameter == Argument_has_parameter::yes) {
-			assert(!default_argument.empty());
+			assume(!default_argument.empty());
 		}
 		if (has_parameter == Argument_has_parameter::no) {
-			assert(default_argument.empty());
+			assume(default_argument.empty());
 		}
 	}
 	bool is_fulfilled_by(const gsl::span<string_view> args) const {

@@ -5,7 +5,6 @@
 
 #include <atomic>
 #include <boost/filesystem.hpp>
-#include <cassert>
 #include <fstream>
 #include <future>
 #include <iostream>

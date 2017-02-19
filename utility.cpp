@@ -1,13 +1,13 @@
 #include "utility.h"
+#include "asserts.h"
 
-#include <cassert>
 #include <memory>
 #include <mutex>
 
 static std::mutex popen_mutex;
 
 std::string get_output_from_command(string_view command) {
-	assert(command.data());
+	assume(command.data());
 	std::unique_ptr<FILE, decltype(pclose) *> fp{nullptr, &pclose};
 	{
 		std::lock_guard<std::mutex> popen_lock(popen_mutex); //unfortunately popen doesn't seem to be thread safe
