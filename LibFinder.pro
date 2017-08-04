@@ -2,7 +2,8 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
-CONFIG += c++14
+#CONFIG += c++14
+CONFIG -= warn
 
 SOURCES += main.cpp \
     lookup.cpp \
@@ -32,8 +33,8 @@ LIBS += -lboost_system
 LIBS += -lboost_filesystem
 LIBS += -lboost_program_options
 
-QMAKE_CXXFLAGS += -std=c++1z
-QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -Wfatal-errors
+QMAKE_CXXFLAGS += -std=c++14
+QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -Wfatal-errors -Wold-style-cast
 linux-clang{
     QMAKE_CXXFLAGS_DEBUG += -Wthread-safety -fsanitize=undefined,address#,safe-stack
     QMAKE_LFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack

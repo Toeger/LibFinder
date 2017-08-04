@@ -1,4 +1,5 @@
 #include "lookup.h"
+#include "asserts.h"
 #include "main.h"
 #include "utility.h"
 
@@ -13,9 +14,9 @@
 using string_view = std::experimental::string_view;
 
 template <class T>
-struct Set_Adapter {
+struct Set_adapter {
 	//insert objects into a vector while keeping it sorted
-	Set_Adapter(std::vector<T> &v)
+	Set_adapter(std::vector<T> &v)
 		: v(v) {}
 	template <class... Args>
 	void insert(Args... args) {
@@ -30,42 +31,38 @@ struct Set_Adapter {
 	std::vector<T> &v;
 };
 
-template <class T>
-static struct Set_Adapter<T> make_set_adapter(std::vector<T> &v) {
-	return {v};
-}
-
 struct File_content_iterator {
-	File_content_iterator(const int *ip)
-		: ip(ip) {}
+	File_content_iterator(const File_index_t *ip)
+		: file_position{ip} {}
 	std::string operator*() {
-		assert(ip);
+		assume(file_position != nullptr);
+		file.seekg(*file_position);
 		std::string retval;
-		file.seekg(*ip);
 		if (!std::getline(file, retval, file_separator)) {
 			throw std::runtime_error("Failed reading file");
 		}
 		return retval;
 	}
 	Symbol_lib_entry get_element() {
+		assume(file_position != nullptr);
+		file.seekg(*file_position);
 		std::string retval;
-		file.seekg(*ip);
 		if (!std::getline(file, retval, entry_separator)) {
 			throw std::runtime_error("Failed reading file");
 		}
 		return {std::move(retval)};
 	}
 	File_content_iterator &operator++() {
-		++ip;
+		++file_position;
 		return *this;
 	}
 	File_content_iterator &operator+=(long int offset) {
-		ip += offset;
+		file_position += offset;
 		return *this;
 	}
 
 	static std::ifstream file;
-	const int *ip = nullptr;
+	const File_index_t *file_position{nullptr};
 };
 
 namespace std {
@@ -73,18 +70,18 @@ namespace std {
 	struct iterator_traits<File_content_iterator> {
 		using iterator_category = random_access_iterator_tag;
 		using value_type = std::string;
-		using difference_type = std::iterator_traits<int *>::difference_type;
+		using difference_type = std::iterator_traits<const int *>::difference_type;
 	};
 }
 
 std::ifstream File_content_iterator::file;
 
 bool operator<(const File_content_iterator &lhs, const File_content_iterator &rhs) {
-	return lhs.ip < rhs.ip;
+	return lhs.file_position < rhs.file_position;
 }
 
 auto operator-(const File_content_iterator &lhs, const File_content_iterator &rhs) {
-	return lhs.ip - rhs.ip;
+	return lhs.file_position - rhs.file_position;
 }
 
 template <class Function>
@@ -113,10 +110,10 @@ RAII<Function> create_RAII(Function &&f) {
 enum class Search_type { exact, prefix };
 
 static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) {
-	std::vector<int> indexes;
+	std::vector<File_index_t> indexes;
 	{
-		int index_size = boost::filesystem::file_size(data_base_index_filepath);
-		indexes.resize(index_size / sizeof(int));
+		File_index_t index_size = boost::filesystem::file_size(data_base_index_filepath);
+		indexes.resize(index_size / sizeof(File_index_t));
 		std::ifstream index_file(data_base_index_filepath, std::ios_base::in | std::ios::binary);
 		index_file.read(any_cast<char *>(indexes.data()), index_size);
 		assert(index_file);
@@ -128,7 +125,7 @@ static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) 
 	auto index_begin = indexes.data();
 	auto index_end = indexes.data() + indexes.size();
 	auto pos = std::lower_bound(File_content_iterator{index_begin}, File_content_iterator{index_end}, symbol);
-	if (pos.ip == index_end) {
+	if (pos.file_position == index_end) {
 		return {};
 	};
 	auto value = pos.get_element();
@@ -142,7 +139,7 @@ static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) 
 	while (value.get_symbol().find(symbol) == 0) {
 		retval.push_back(std::move(value));
 		++pos;
-		if (pos.ip == index_end) {
+		if (pos.file_position == index_end) {
 			return retval;
 		}
 		value = pos.get_element();

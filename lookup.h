@@ -7,8 +7,8 @@
 #include <vector>
 
 struct Symbol_lib_entry {
-	Symbol_lib_entry(std::string &&entry)
-		: entry(entry) {
+	Symbol_lib_entry(std::string &&entry_)
+		: entry{std::move(entry_)} {
 		string_view rest(entry);
 		rest.remove_prefix(entry.find(file_separator) + 1);
 		for (auto pos = rest.find(file_separator); pos != rest.npos; pos = rest.find(file_separator)) {
@@ -17,7 +17,7 @@ struct Symbol_lib_entry {
 		}
 		lib_pos.emplace_back(rest.data() - entry.data(), rest.size());
 	}
-	std::string entry;
+	std::string entry{};
 	string_view get_symbol() {
 		return string_view(entry.data(), lib_pos.front().first - 1);
 	}

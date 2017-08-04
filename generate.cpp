@@ -110,7 +110,7 @@ void update(int jobs) {
 		std::ofstream symbolic_links_file(symbolic_links_filepath, std::ios_base::out | std::ios::binary);
 		std::ofstream symbolic_links_index_file(symbolic_links_index_filepath, std::ios_base::out | std::ios::binary);
 		for (const auto &link : symbolic_links) {
-			int index = symbolic_links_file.tellp();
+			File_index_t index = symbolic_links_file.tellp();
 			symbolic_links_index_file.write(any_cast<const char *>(&index), sizeof index);
 			symbolic_links_file << link.first << link.second << entry_separator;
 		}
@@ -162,7 +162,7 @@ void update(int jobs) {
 	std::ofstream db_file(data_base_filepath, std::ios_base::out | std::ios::binary);
 	std::ofstream index_file(data_base_index_filepath, std::ios_base::out | std::ios::binary);
 	for (auto &p : symbol_map) {
-		int index = db_file.tellp();
+		File_index_t index = db_file.tellp();
 		index_file.write(any_cast<const char *>(&index), sizeof index);
 		db_file << p.first << p.second << entry_separator;
 	}
