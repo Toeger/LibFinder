@@ -95,7 +95,7 @@ void update(int jobs) {
 		auto &queue = a_file_paths.not_thread_safe_get();
 		std::istringstream is(get_output_from_command(R"(locate -ber \.a$)"));
 		for (std::string line; std::getline(is, line);) {
-			auto file_type = get_output_from_command("file " + line);
+			auto file_type = get_output_from_command("file \"" + line + '"');
 			if (file_type.find("current ar archive") != std::string::npos) {
 				queue.push(std::move(line));
 				std::cout << ++symbol_counter << '\r' << std::flush;
