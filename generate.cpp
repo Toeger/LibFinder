@@ -107,6 +107,7 @@ void update(int jobs) {
 	}
 	{
 		//create symbolic link file
+		boost::filesystem::create_directory(data_base_path);
 		std::ofstream symbolic_links_file(symbolic_links_filepath, std::ios_base::out | std::ios::binary);
 		std::ofstream symbolic_links_index_file(symbolic_links_index_filepath, std::ios_base::out | std::ios::binary);
 		for (const auto &link : symbolic_links) {
@@ -114,8 +115,8 @@ void update(int jobs) {
 			symbolic_links_index_file.write(any_cast<const char *>(&index), sizeof index);
 			symbolic_links_file << link.first << link.second << entry_separator;
 		}
-		assert(symbolic_links_file);
-		assert(symbolic_links_index_file);
+		assert(symbolic_links_file.flush());
+		assert(symbolic_links_index_file.flush());
 	}
 	const int total_libs = so_file_paths.size() + a_file_paths.size();
 
@@ -158,7 +159,6 @@ void update(int jobs) {
 
 	//write results to disk
 	std::cout << '\n' << "writing results to file " << data_base_filepath << std::flush;
-	boost::filesystem::create_directory(data_base_path);
 	std::ofstream db_file(data_base_filepath, std::ios_base::out | std::ios::binary);
 	std::ofstream index_file(data_base_index_filepath, std::ios_base::out | std::ios::binary);
 	for (auto &p : symbol_map) {
@@ -166,6 +166,6 @@ void update(int jobs) {
 		index_file.write(any_cast<const char *>(&index), sizeof index);
 		db_file << p.first << p.second << entry_separator;
 	}
-	assert(index_file);
-	assert(db_file);
+	assert(index_file.flush());
+	assert(db_file.flush());
 }
