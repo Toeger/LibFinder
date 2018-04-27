@@ -76,31 +76,31 @@ void update(int jobs) {
 	std::atomic<int> libs{0};
 	int symbol_counter = 0;
 	{
-		//add all .so files to queue
+		//add all lib*.so files to queue
 		auto &queue = so_file_paths.not_thread_safe_get();
-		std::istringstream is(get_output_from_command(R"(locate -ber \.so$)"));
+		std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)"));
 		for (std::string line; std::getline(is, line);) {
-			auto file_type = get_output_from_command("file " + line);
+			auto file_type = get_output_from_command("file \"" + line + '"');
 			if (file_type.find("ELF 64-bit LSB shared object") != std::string::npos) {
 				queue.push(std::move(line));
 				std::cout << ++symbol_counter << '\r' << std::flush;
 			} else if (file_type.find("symbolic link")) {
-				symbolic_links[get_output_from_command("readlink -f " + line)] += file_separator + line;
+				symbolic_links[get_output_from_command("readlink -f \"" + line + '"')] += file_separator + line;
 			}
 			//else skip
 		}
 	}
 	{
-		//add all .a files to queue
+		//add all lib*.a files to queue
 		auto &queue = a_file_paths.not_thread_safe_get();
-		std::istringstream is(get_output_from_command(R"(locate -ber \.a$)"));
+		std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.a$)"));
 		for (std::string line; std::getline(is, line);) {
 			auto file_type = get_output_from_command("file \"" + line + '"');
 			if (file_type.find("current ar archive") != std::string::npos) {
 				queue.push(std::move(line));
 				std::cout << ++symbol_counter << '\r' << std::flush;
 			} else if (file_type.find("symbolic link")) {
-				symbolic_links[get_output_from_command("readlink -f " + line)] += file_separator + line;
+				symbolic_links[get_output_from_command("readlink -f \"" + line + '"')] += file_separator + line;
 			}
 			//else skip
 		}
