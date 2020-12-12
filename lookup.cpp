@@ -56,8 +56,16 @@ struct File_content_iterator {
 		++file_position;
 		return *this;
 	}
+	File_content_iterator &operator--() {
+		--file_position;
+		return *this;
+	}
 	File_content_iterator &operator+=(long int offset) {
 		file_position += offset;
+		return *this;
+	}
+	File_content_iterator &operator-=(long int offset) {
+		file_position -= offset;
 		return *this;
 	}
 
@@ -72,7 +80,7 @@ namespace std {
 		using value_type = std::string;
 		using difference_type = std::iterator_traits<const int *>::difference_type;
 	};
-}
+} // namespace std
 
 std::ifstream File_content_iterator::file;
 
@@ -104,7 +112,7 @@ RAII<Function> create_RAII(Function &&f) {
 	return RAII<remove_cvr<Function>>(std::forward<Function>(f));
 }
 #define ON_SCOPE_EXIT_CAT(a, b) ON_SCOPE_EXIT_CAT_(a, b) // force expand
-#define ON_SCOPE_EXIT_CAT_(a, b) a##b                    // actually concatenate
+#define ON_SCOPE_EXIT_CAT_(a, b) a##b					 // actually concatenate
 #define ON_SCOPE_EXIT(CODE) auto ON_SCOPE_EXIT_CAT(ON_SCOPE_EXIT_, __LINE__) = create_RAII([&]() { CODE })
 
 enum class Search_type { exact, prefix };
