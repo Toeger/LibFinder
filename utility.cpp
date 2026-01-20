@@ -1,5 +1,4 @@
 #include "utility.h"
-#include "asserts.h"
 
 #include <memory>
 #include <mutex>
@@ -7,12 +6,10 @@
 static std::mutex popen_mutex;
 
 std::string get_output_from_command(string_view command) {
-	assume(command.data());
-	std::unique_ptr<FILE, decltype(pclose) *> fp{nullptr, &pclose};
+	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{nullptr};
 	{
 		std::lock_guard<std::mutex> popen_lock(popen_mutex); //unfortunately popen doesn't seem to be thread safe
-		std::unique_ptr<FILE, decltype(pclose) *> p{popen(command.data(), "r"), &pclose};
-		fp = std::move(p);
+		fp.reset(popen(command.data(), "r"));
 	}
 	if (!fp) {
 		return {};

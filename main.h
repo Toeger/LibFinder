@@ -1,6 +1,7 @@
 #ifndef MAIN_H
 #define MAIN_H
 
+#include <cstdint>
 #include <experimental/string_view>
 #include <string>
 
@@ -15,6 +16,6 @@ extern const std::string data_base_index_filepath;
 extern const std::string symbolic_links_filepath;
 extern const std::string symbolic_links_index_filepath;
 
-using File_index_t = uint32_t;
+using File_index_t = std::uint32_t;
 
 #endif // MAIN_H
