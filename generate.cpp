@@ -11,8 +11,6 @@
 #include <sstream>
 #include <string>
 
-static int symbols;
-
 int add_to_database_so(Map &symbol_file_map, const string_view file_path) {
 	int symbols = 0;
 	std::stringstream ss(get_output_from_command(std::string("objdump -TCw ") + file_path.data()));
@@ -22,25 +20,16 @@ int add_to_database_so(Map &symbol_file_map, const string_view file_path) {
 	std::getline(ss, line); //empty line
 	std::getline(ss, line); //caption
 	std::getline(ss, line); //.init line
-	auto linit = line.find(".init");
-	if (linit == std::string::npos) {
-		return symbols;
-	}
-	auto rinit = line.rfind(".init");
-	if (rinit == std::string::npos) {
-		return symbols;
-	}
 	while (std::getline(ss, line)) {
-		if (string_view(line.data() + linit, 5) == "*UND*") {
+		if (line.contains("*UND*")) {
 			continue;
 		}
-		auto symbol_pos = line.data() + rinit - 3;
-		while (*symbol_pos++ != ' ') {
+		auto symbol_pos = line.rfind(' ');
+		if (symbol_pos == line.npos) {
+			continue;
 		}
-		while (*symbol_pos == ' ') {
-			symbol_pos++;
-		}
-		auto &entry = symbol_file_map[symbol_pos];
+		symbol_pos++;
+		auto &entry = symbol_file_map[line.data() + symbol_pos];
 		entry.push_back(file_separator);
 		entry += file_path.data();
 		symbols++;
@@ -68,6 +57,8 @@ int add_to_database_a(Map &symbol_file_map, const string_view file_path) {
 	return symbols;
 }
 
+static int symbols;
+
 void update(int jobs) {
 	std::cout << "Generating file list\n" << std::flush;
 	Thread_safe_queue<std::string> so_file_paths;
@@ -78,7 +69,8 @@ void update(int jobs) {
 	{
 		//add all lib*.so files to queue
 		auto &queue = so_file_paths.not_thread_safe_get();
-		std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)"));
+		std::stringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)"));
+		is << get_output_from_command(R"(locate -ber lib.*\.so\..*[0-9]$)");
 		for (std::string line; std::getline(is, line);) {
 			auto file_type = get_output_from_command("file \"" + line + '"');
 			if (file_type.find("ELF 64-bit LSB shared object") != std::string::npos) {
