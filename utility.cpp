@@ -5,7 +5,7 @@
 
 static std::mutex popen_mutex;
 
-std::string get_output_from_command(string_view command) {
+std::string get_output_from_command(std::string_view command) {
 	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{nullptr};
 	{
 		std::lock_guard<std::mutex> popen_lock(popen_mutex); //unfortunately popen doesn't seem to be thread safe

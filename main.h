@@ -2,10 +2,7 @@
 #define MAIN_H
 
 #include <cstdint>
-#include <experimental/string_view>
 #include <string>
-
-using string_view = std::experimental::string_view;
 
 static const auto entry_separator = '\0'; //must be illegal in symbol names and paths
 static const auto file_separator = '\1';  //must be illegal in paths

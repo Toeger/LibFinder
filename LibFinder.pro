@@ -13,6 +13,7 @@ SOURCES += main.cpp \
     argument_parser.cpp \
     asserts.cpp \
     radix_tree.cpp \
+    libparser.cpp \
     test_radix_tree.cpp
 
 HEADERS += \
@@ -26,6 +27,7 @@ HEADERS += \
     gsl-lite.h \
     asserts.h \
     radix_tree.h \
+    libparser.h \
     test_radix_tree.h
 
 LIBS += -lpthread
@@ -35,10 +37,8 @@ LIBS += -lboost_program_options
 
 QMAKE_CXXFLAGS += -std=c++26
 QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -Wfatal-errors -Wold-style-cast
-linux-clang{
-    QMAKE_CXXFLAGS_DEBUG += -Wthread-safety -fsanitize=undefined,address#,safe-stack
-    QMAKE_LFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
-}
+QMAKE_CXXFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
+QMAKE_LFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
 QMAKE_CXXFLAGS_PROFILE += -DNDEBUG
 QMAKE_CXXFLAGS_RELEASE += -O3 -DNDEBUG
 gcc{

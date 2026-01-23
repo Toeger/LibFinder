@@ -1,7 +1,6 @@
 #include "lookup.h"
 #include "asserts.h"
 #include "main.h"
-#include "utility.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
@@ -11,13 +10,11 @@
 #include <set>
 #include <vector>
 
-using string_view = std::experimental::string_view;
-
 template <class T>
 struct Set_adapter {
 	//insert objects into a vector while keeping it sorted
-	Set_adapter(std::vector<T> &v)
-		: v(v) {}
+	Set_adapter(std::vector<T> &v_)
+		: v(v_) {}
 	template <class... Args>
 	void insert(Args... args) {
 		T t{args...};
@@ -84,18 +81,14 @@ namespace std {
 
 std::ifstream File_content_iterator::file;
 
-bool operator<(const File_content_iterator &lhs, const File_content_iterator &rhs) {
-	return lhs.file_position < rhs.file_position;
-}
-
-auto operator-(const File_content_iterator &lhs, const File_content_iterator &rhs) {
+static auto operator-(const File_content_iterator &lhs, const File_content_iterator &rhs) {
 	return lhs.file_position - rhs.file_position;
 }
 
 template <class Function>
 struct RAII {
-	RAII(Function &&f)
-		: f(std::move(f)) {}
+	RAII(Function &&f_)
+		: f(std::move(f_)) {}
 	~RAII() {
 		std::move(f)();
 	}
@@ -117,13 +110,13 @@ RAII<Function> create_RAII(Function &&f) {
 
 enum class Search_type { exact, prefix };
 
-static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) {
+static std::vector<Symbol_lib_entry> lookup(std::string_view symbol, Search_type st) {
 	std::vector<File_index_t> indexes;
 	{
 		File_index_t index_size = boost::filesystem::file_size(data_base_index_filepath);
 		indexes.resize(index_size / sizeof(File_index_t));
 		std::ifstream index_file(data_base_index_filepath, std::ios_base::in | std::ios::binary);
-		index_file.read(any_cast<char *>(indexes.data()), index_size);
+		index_file.read(reinterpret_cast<char *>(indexes.data()), index_size);
 		assert(index_file);
 	}
 	File_content_iterator::file.open(data_base_filepath, std::ios_base::in | std::ios::binary);
@@ -135,12 +128,12 @@ static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) 
 	auto pos = std::lower_bound(File_content_iterator{index_begin}, File_content_iterator{index_end}, symbol);
 	if (pos.file_position == index_end) {
 		return {};
-	};
+	}
 	auto value = pos.get_element();
 	if (st == Search_type::exact) {
 		if (value.get_symbol() == symbol) {
 			return {std::move(value)};
-		};
+		}
 		return {};
 	}
 	std::vector<Symbol_lib_entry> retval;
@@ -155,11 +148,11 @@ static std::vector<Symbol_lib_entry> lookup(string_view symbol, Search_type st) 
 	return retval;
 }
 
-std::vector<std::string> exact_lookup(string_view symbol) {
+std::vector<std::string> exact_lookup(std::string_view symbol) {
 	auto symbols = lookup(symbol, Search_type::exact);
 	if (symbols.empty()) {
 		return {};
-	};
+	}
 	assert(symbols.size() == 1);
 	std::vector<std::string> retval;
 	const auto &libs = symbols.front().get_libs_view();
@@ -171,6 +164,6 @@ std::vector<std::string> exact_lookup(string_view symbol) {
 	return retval;
 }
 
-std::vector<Symbol_lib_entry> prefix_lookup(string_view symbol) {
+std::vector<Symbol_lib_entry> prefix_lookup(std::string_view symbol) {
 	return lookup(symbol, Search_type::prefix);
 }

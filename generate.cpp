@@ -1,4 +1,5 @@
 #include "generate.h"
+#include "libparser.h"
 #include "main.h"
 #include "thread_safe_queue.h"
 #include "utility.h"
@@ -11,152 +12,86 @@
 #include <sstream>
 #include <string>
 
-int add_to_database_so(Map &symbol_file_map, const string_view file_path) {
-	int symbols = 0;
-	std::stringstream ss(get_output_from_command(std::string("objdump -TCw ") + file_path.data()));
-	std::string line;
-	std::getline(ss, line); //empty line
-	std::getline(ss, line); //file format
-	std::getline(ss, line); //empty line
-	std::getline(ss, line); //caption
-	std::getline(ss, line); //.init line
-	while (std::getline(ss, line)) {
-		if (line.contains("*UND*")) {
-			continue;
-		}
-		auto symbol_pos = line.rfind(' ');
-		if (symbol_pos == line.npos) {
-			continue;
-		}
-		symbol_pos++;
-		auto &entry = symbol_file_map[line.data() + symbol_pos];
-		entry.push_back(file_separator);
-		entry += file_path.data();
-		symbols++;
-	}
-	return symbols;
-}
-
-int add_to_database_a(Map &symbol_file_map, const string_view file_path) {
-	int symbols = 0;
-	std::stringstream ss(get_output_from_command(std::string("nm -gC ") + file_path.data()));
-	std::string line;
-	while (std::getline(ss, line)) {
-		if (line.size() < 20) { //if the line is too short to contain a symbol skip it
-			continue;
-		}
-		if (string_view(line.c_str() + 16, 3) == " U ") { //if the line refers to an undefined symbol skip it
-			continue;
-		}
-
-		auto &entry = symbol_file_map[line.c_str() + 19];
-		entry.push_back(file_separator);
-		entry += file_path.data();
-		symbols++;
-	}
-	return symbols;
-}
-
-static int symbols;
-
 void update(int jobs) {
-	std::cout << "Generating file list\n" << std::flush;
-	Thread_safe_queue<std::string> so_file_paths;
-	Thread_safe_queue<std::string> a_file_paths;
-	std::map<std::string, std::string> symbolic_links;
-	std::atomic<int> libs{0};
-	int symbol_counter = 0;
+	std::cout << "Collecting library candidates...\r" << std::flush;
+	Thread_safe_queue<std::string> file_paths;
+	std::atomic<std::size_t> libs{0};
+	std::size_t library_candidates;
 	{
 		//add all lib*.so files to queue
-		auto &queue = so_file_paths.not_thread_safe_get();
-		std::stringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)"));
-		is << get_output_from_command(R"(locate -ber lib.*\.so\..*[0-9]$)");
-		for (std::string line; std::getline(is, line);) {
-			auto file_type = get_output_from_command("file \"" + line + '"');
-			if (file_type.find("ELF 64-bit LSB shared object") != std::string::npos) {
+		auto &queue = file_paths.not_thread_safe_get();
+		{
+			std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)"));
+			for (std::string line; std::getline(is, line);) {
 				queue.push(std::move(line));
-				std::cout << ++symbol_counter << '\r' << std::flush;
-			} else if (file_type.find("symbolic link")) {
-				symbolic_links[get_output_from_command("readlink -f \"" + line + '"')] += file_separator + line;
 			}
-			//else skip
 		}
-	}
-	{
-		//add all lib*.a files to queue
-		auto &queue = a_file_paths.not_thread_safe_get();
-		std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.a$)"));
-		for (std::string line; std::getline(is, line);) {
-			auto file_type = get_output_from_command("file \"" + line + '"');
-			if (file_type.find("current ar archive") != std::string::npos) {
+		{
+			std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.a$)"));
+			for (std::string line; std::getline(is, line);) {
 				queue.push(std::move(line));
-				std::cout << ++symbol_counter << '\r' << std::flush;
-			} else if (file_type.find("symbolic link")) {
-				symbolic_links[get_output_from_command("readlink -f \"" + line + '"')] += file_separator + line;
 			}
-			//else skip
 		}
+		library_candidates = queue.size();
+		std::cout << "Collecting symbols from " << library_candidates << " library candidates..." << std::endl;
 	}
-	{
-		//create symbolic link file
-		boost::filesystem::create_directory(data_base_path);
-		std::ofstream symbolic_links_file(symbolic_links_filepath, std::ios_base::out | std::ios::binary);
-		std::ofstream symbolic_links_index_file(symbolic_links_index_filepath, std::ios_base::out | std::ios::binary);
-		for (const auto &link : symbolic_links) {
-			File_index_t index = symbolic_links_file.tellp();
-			symbolic_links_index_file.write(any_cast<const char *>(&index), sizeof index);
-			symbolic_links_file << link.first << link.second << entry_separator;
-		}
-		assert(symbolic_links_file.flush());
-		assert(symbolic_links_index_file.flush());
-	}
-	const int total_libs = so_file_paths.size() + a_file_paths.size();
 
 	std::vector<std::future<Map>> threads;
-	std::mutex printer;
 
 	//function for each thread to execute, which takes a chunk of paths to scan from the queue and scans them until the queue is empty
-	auto thread_handler = [&printer, &so_file_paths, &a_file_paths, &libs, total_libs] {
+	auto thread_handler = [&file_paths, &libs, library_candidates] {
 		Map symbol_map;
-		while (!so_file_paths.empty()) {
-			auto lib_paths = so_file_paths.pop_n(100);
+		while (not file_paths.empty()) {
+			auto lib_paths = file_paths.pop_n(libs * 100 / library_candidates < 90 ? 100 : 10);
 			for (auto &lib_path : lib_paths) {
-				auto added_symbols = add_to_database_so(symbol_map, lib_path);
-				std::lock_guard<std::mutex> lock(printer);
-				symbols += added_symbols;
-				std::cout << "found " << symbols << " symbols in " << ++libs << "/" << total_libs << " libs\r" << std::flush;
-			}
-		}
-		while (!a_file_paths.empty()) {
-			auto lib_paths = a_file_paths.pop_n(100);
-			for (auto &lib_path : lib_paths) {
-				auto added_symbols = add_to_database_a(symbol_map, lib_path);
-				std::lock_guard<std::mutex> lock(printer);
-				symbols += added_symbols;
-				std::cout << "found " << symbols << " symbols in " << ++libs << "/" << total_libs << " libs\r" << std::flush;
+				auto n = ++libs;
+				if (n * 100 / library_candidates > ((n - 1) * 100) / library_candidates) {
+					std::cout << n * 100 / library_candidates << "%\r" << std::flush;
+				}
+				auto file_type = get_output_from_command("file \"" + lib_path + '"');
+				if (file_type.contains("symbolic link")) {
+					auto target = get_output_from_command("readlink -f \"" + lib_path + '"');
+					target.pop_back();
+					file_type = get_output_from_command("file \"" + target + '"');
+				}
+				bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
+				if (not is_shared_object and not file_type.contains("current ar archive")) {
+					continue;
+				}
+				for (auto &symbol : parse_lib(lib_path, is_shared_object)) {
+					if (symbol.type == Symbol_type::undefined) {
+						continue;
+					}
+					symbol_map[symbol.name] += file_separator + lib_path;
+				}
 			}
 		}
 		return symbol_map;
 	};
-	//create threads
-	threads.reserve(jobs - 1);
-	std::generate_n(std::back_inserter(threads), jobs - 1, [&thread_handler] { return std::async(std::launch::async, thread_handler); });
-	auto symbol_map = thread_handler();
-	//collect results
-	for (auto &t : threads) {
-		for (auto &p : t.get()) {
-			symbol_map[p.first] += p.second;
+
+	std::move_only_function<Map(int)> thread_launcher = [&thread_handler, &thread_launcher](int njobs) {
+		if (njobs == 1) {
+			return thread_handler();
 		}
-	}
+		auto future_result = std::async(std::launch::async, std::ref(thread_launcher), njobs / 2);
+		njobs -= njobs / 2;
+		auto result = thread_launcher(njobs);
+		for (auto &p : future_result.get()) {
+			result[p.first] += std::move(p.second);
+		}
+		return result;
+	};
+
+	auto symbol_map = thread_launcher(jobs);
 
 	//write results to disk
-	std::cout << '\n' << "writing results to file " << data_base_filepath << std::flush;
+	std::cout << '\n' << "writing " << symbol_map.size() << " symbols to file " << data_base_filepath << std::flush;
 	std::ofstream db_file(data_base_filepath, std::ios_base::out | std::ios::binary);
 	std::ofstream index_file(data_base_index_filepath, std::ios_base::out | std::ios::binary);
-	for (auto &p : symbol_map) {
+	for (auto &[symbol, lib] : symbol_map) {
 		File_index_t index = db_file.tellp();
-		index_file.write(any_cast<const char *>(&index), sizeof index);
-		db_file << p.first << p.second << entry_separator;
+		index_file.write(reinterpret_cast<const char *>(&index), sizeof index);
+		db_file << symbol << lib << entry_separator;
 	}
 	assert(index_file.flush());
 	assert(db_file.flush());
