@@ -153,7 +153,9 @@ static void handle_linkcommand(std::span<std::string_view> files) {
 	Symbol_matcher symbol_matcher;
 	for (auto &file : files) {
 		for (auto &symbol : parse_lib(file, false)) {
-			symbol_matcher.add(symbol, file);
+			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
+				symbol_matcher.add(symbol, file);
+			}
 		}
 	}
 	std::println("{} defined and {} undefined symbols found before linking", symbol_matcher.defined.size(), symbol_matcher.undefined.size());
