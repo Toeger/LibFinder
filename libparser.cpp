@@ -1,4 +1,5 @@
 #include "libparser.h"
+#include "asserts.h"
 #include "utility.h"
 
 #include <format>
@@ -90,5 +91,7 @@ std::string Symbol::demangled_name() const {
 }
 
 std::string Symbol::demangled_name(std::string_view name) {
-	return get_output_from_command(std::format("c++filt {}", name));
+	auto result = get_output_from_command(std::format("c++filt {}", name));
+	result.pop_back();
+	return result;
 }
