@@ -2,6 +2,7 @@
 #include "generate.h"
 #include "libparser.h"
 #include "lookup.h"
+#include "test.h"
 #include "utility.h"
 
 #include <boost/filesystem.hpp>
@@ -168,6 +169,9 @@ static void handle_linkcommand(std::span<std::string_view> files) {
 }
 
 int main(int argc, char *argv[]) {
+#ifndef _NDEBUG
+	test();
+#endif
 	boost::program_options::options_description options(
 		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder "
 		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "

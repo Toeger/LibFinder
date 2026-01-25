@@ -12,6 +12,7 @@ SOURCES += main.cpp \
     test.cpp \
     argument_parser.cpp \
     asserts.cpp \
+    reverse_prefix_tree.cpp \
     libparser.cpp
 
 HEADERS += \
@@ -24,6 +25,7 @@ HEADERS += \
     argument_parser.h \
     gsl-lite.h \
     asserts.h \
+    reverse_prefix_tree.h \
     libparser.h
 
 LIBS += -lpthread
