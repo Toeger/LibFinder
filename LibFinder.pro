@@ -13,6 +13,7 @@ SOURCES += main.cpp \
     argument_parser.cpp \
     asserts.cpp \
     reverse_prefix_tree.cpp \
+    symbol_database.cpp \
     libparser.cpp
 
 HEADERS += \
@@ -26,15 +27,15 @@ HEADERS += \
     gsl-lite.h \
     asserts.h \
     reverse_prefix_tree.h \
+    symbol_database.h \
     libparser.h
 
 LIBS += -lpthread
 LIBS += -lboost_system
-LIBS += -lboost_filesystem
 LIBS += -lboost_program_options
 
 QMAKE_CXXFLAGS += -std=c++26
-QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -Wfatal-errors -Wold-style-cast
+QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -fdiagnostics-color -Wold-style-cast -fdiagnostics-all-candidates #-Wfatal-errors
 QMAKE_CXXFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
 QMAKE_LFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
 QMAKE_CXXFLAGS_PROFILE += -DNDEBUG

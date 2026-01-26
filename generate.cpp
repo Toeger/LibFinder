@@ -5,17 +5,20 @@
 #include "utility.h"
 
 #include <atomic>
-#include <boost/filesystem.hpp>
+#include <cassert>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 
 void update(int jobs) {
 	std::cout << "Collecting library candidates...\r" << std::flush;
 	Thread_safe_queue<std::string> file_paths;
-	std::atomic<std::size_t> libs{0};
+	std::atomic<std::size_t> handled_libs{0};
 	std::size_t library_candidates;
 	{
 		//add all lib*.so files to queue
@@ -32,6 +35,7 @@ void update(int jobs) {
 				queue.push(std::move(line));
 			}
 		}
+		//file_paths.pop_n(queue.size() - 100);
 		library_candidates = queue.size();
 		std::cout << "Collecting symbols from " << library_candidates << " library candidates..." << std::endl;
 	}
@@ -39,12 +43,12 @@ void update(int jobs) {
 	std::vector<std::future<Map>> threads;
 
 	//function for each thread to execute, which takes a chunk of paths to scan from the queue and scans them until the queue is empty
-	auto thread_handler = [&file_paths, &libs, library_candidates] {
+	auto thread_handler = [&file_paths, &handled_libs, library_candidates] {
 		Map symbol_map;
 		while (not file_paths.empty()) {
-			auto lib_paths = file_paths.pop_n(libs * 100 / library_candidates < 90 ? 100 : 10);
+			auto lib_paths = file_paths.pop_n(handled_libs * 100 / library_candidates < 90 ? 100 : 10);
 			for (auto &lib_path : lib_paths) {
-				auto n = ++libs;
+				auto n = ++handled_libs;
 				if (n * 100 / library_candidates > ((n - 1) * 100) / library_candidates) {
 					std::cout << n * 100 / library_candidates << "%\r" << std::flush;
 				}
@@ -85,14 +89,65 @@ void update(int jobs) {
 	auto symbol_map = thread_launcher(jobs);
 
 	//write results to disk
-	std::cout << '\n' << "writing " << symbol_map.size() << " symbols to file " << data_base_filepath << std::flush;
+	std::cout << '\n' << "writing " << symbol_map.size() << " symbols to " << data_base_path << std::flush;
 	std::ofstream db_file(data_base_filepath, std::ios_base::out | std::ios::binary);
 	std::ofstream index_file(data_base_index_filepath, std::ios_base::out | std::ios::binary);
-	for (auto &[symbol, lib] : symbol_map) {
+#if USING_OLD_STYLE
+	for (auto &[symbol, libs] : symbol_map) {
 		File_index_t index = db_file.tellp();
 		index_file.write(reinterpret_cast<const char *>(&index), sizeof index);
-		db_file << symbol << lib << entry_separator;
+		db_file << symbol << libs << entry_separator;
 	}
+#else
+
+	struct Path_list {
+		std::size_t path_index(const std::string &path) {
+			auto &pos = data[path];
+			if (pos == 0) {
+				pos = size;
+				size += path.size() + 1;
+			}
+			return pos;
+		}
+		void write(std::filesystem::path path) {
+			std::map<std::size_t, std::string> rev_data;
+			for (auto &[lib_path, pos] : data) {
+				rev_data.insert({pos, lib_path});
+			}
+			std::ofstream file{path, std::ios_base::out | std::ios::binary};
+			for (auto &[_, lib_path] : rev_data) {
+				file << lib_path << '\n';
+			}
+		}
+		std::map<std::string, std::size_t> data;
+		std::size_t size;
+	} path_list;
+
+	auto write_index = [](std::ostream &os, std::size_t index, int bytes) {
+		while (bytes--) {
+			os << static_cast<std::uint8_t>(index & 0xff);
+			index >>= 8;
+		}
+	};
+
+	for (auto &[symbol, libs] : symbol_map) {
+		File_index_t index = db_file.tellp();
+		index_file.write(reinterpret_cast<const char *>(&index), sizeof index);
+		db_file << symbol;
+		for (auto lib : libs | std::ranges::views::split(file_separator) | std::views::drop(1)) {
+			auto path = std::string_view{lib};
+			auto pos = path.rfind(std::filesystem::path::preferred_separator);
+			auto file = path;
+			path.remove_suffix(path.size() - pos);
+			file.remove_prefix(pos + 1);
+			path_list.path_index(std::string{path});
+			write_index(db_file, path_list.path_index(std::string{path}), 3);
+			db_file << file << file_separator;
+		}
+		db_file << entry_separator;
+	}
+	path_list.write(data_base_path + std::filesystem::path::preferred_separator + "paths");
+#endif
 	assert(index_file.flush());
 	assert(db_file.flush());
 }

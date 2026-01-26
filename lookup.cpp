@@ -2,10 +2,10 @@
 #include "asserts.h"
 #include "main.h"
 
-#include <boost/filesystem.hpp>
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
 #include <experimental/string_view>
+#include <filesystem>
 #include <fstream>
 #include <set>
 #include <vector>
@@ -113,7 +113,7 @@ enum class Search_type { exact, prefix };
 static std::vector<Symbol_lib_entry> lookup(std::string_view symbol, Search_type st) {
 	std::vector<File_index_t> indexes;
 	{
-		File_index_t index_size = boost::filesystem::file_size(data_base_index_filepath);
+		File_index_t index_size = std::filesystem::file_size(data_base_index_filepath);
 		indexes.resize(index_size / sizeof(File_index_t));
 		std::ifstream index_file(data_base_index_filepath, std::ios_base::in | std::ios::binary);
 		index_file.read(reinterpret_cast<char *>(indexes.data()), index_size);

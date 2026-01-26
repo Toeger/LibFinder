@@ -21,6 +21,7 @@ const std::string data_base_path = [] {
 
 //TODO: find a way to share the files between users
 const std::string data_base_filepath = data_base_path + "/database";
+const std::string tree_filepath = data_base_path + "/libs";
 const std::string data_base_index_filepath = data_base_path + "/database_index";
 
 struct Symbol_matcher {
