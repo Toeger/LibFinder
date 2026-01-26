@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -10,6 +11,7 @@ namespace Symbol_database {
 		void add(std::string symbol, std::string library);
 		void write(std::filesystem::path path) const;
 		void merge(Writer &&other);
+		std::size_t size() const;
 
 		private:
 		std::vector<std::vector<std::pair<std::string /*symbol*/, std::string /*library*/>>> data{{}};
@@ -20,12 +22,14 @@ namespace Symbol_database {
 		~Reader();
 		Reader(Reader &&other);
 		Reader &operator=(Reader &&other);
-		std::vector<std::string_view> get_libraries(std::string_view symbol, bool prefix_search = false) const;
+		std::vector<std::string_view /*lib*/> libraries_from_symbol(std::string_view symbol) const;
+		std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> libraries_from_prefix(std::string_view symbol_prefixes) const;
 
 		private:
 		struct Symbol_db_iterator;
 		std::string_view get_symbol(std::size_t index);
-		std::vector<std::string_view> get_libraries(Symbol_db_iterator begin, Symbol_db_iterator end) const;
+		std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> get_libraries(Symbol_db_iterator begin,
+																											Symbol_db_iterator end) const;
 		Symbol_db_iterator begin() const;
 		Symbol_db_iterator end() const;
 

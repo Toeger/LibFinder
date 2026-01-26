@@ -1,7 +1,7 @@
 #include "main.h"
 #include "generate.h"
 #include "libparser.h"
-#include "lookup.h"
+#include "symbol_database.h"
 #include "test.h"
 #include "utility.h"
 
@@ -21,8 +21,6 @@ const std::string data_base_path = [] {
 
 //TODO: find a way to share the files between users
 const std::string data_base_filepath = data_base_path + "/database";
-const std::string tree_filepath = data_base_path + "/libs";
-const std::string data_base_index_filepath = data_base_path + "/database_index";
 
 struct Symbol_matcher {
 	struct Type_and_origin_index {
@@ -68,7 +66,7 @@ struct Symbol_matcher {
 	[[nodiscard]] std::expected<std::string, Unresolved_result> resolve_to_command() {
 		std::vector<std::string> libraries;
 		for (auto it = std::begin(undefined); it != std::end(undefined);) {
-			auto libs = exact_lookup(it->first);
+			auto libs = db.libraries_from_symbol(it->first);
 			if (libs.empty()) {
 				return std::unexpected(Unresolved_result{it->first, origins[it->second.origin_index]});
 			}
@@ -149,6 +147,7 @@ struct Symbol_matcher {
 
 	std::map<std::string /*symbol*/, Type_and_origin_index> defined, undefined;
 	std::vector<std::string /*paths*/> origins;
+	Symbol_database::Reader db{data_base_filepath};
 };
 
 static void handle_linkcommand(std::span<std::string_view> files) {
@@ -213,10 +212,9 @@ int main(int argc, char *argv[]) {
 	if (program_args.count("symbol")) {
 		const auto &prefix = program_args["symbol"].as<std::string>();
 		std::cout << "All symbols that have the prefix \"" << prefix << "\" and their libraries:\n";
-		auto symbols = prefix_lookup(prefix);
-		for (auto &symbol : symbols) {
-			std::cout << symbol.get_symbol() << '\n';
-			auto libs = symbol.get_libs_view();
+		auto symbols_libs = Symbol_database::Reader{data_base_filepath}.libraries_from_prefix(prefix);
+		for (auto &[symbol, libs] : symbols_libs) {
+			std::cout << symbol << '\n';
 			std::sort(std::begin(libs), std::end(libs));
 			libs.erase(std::unique(std::begin(libs), std::end(libs)), std::end(libs));
 			for (auto &lib : libs) {

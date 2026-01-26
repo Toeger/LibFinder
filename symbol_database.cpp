@@ -109,6 +109,14 @@ void Symbol_database::Writer::merge(Writer &&other) {
 	other.data.push_back({});
 }
 
+std::size_t Symbol_database::Writer::size() const {
+	std::size_t size{};
+	for (auto &d : data) {
+		size += d.size();
+	}
+	return size;
+}
+
 Symbol_database::Reader::Reader(std::filesystem::path path)
 	: data_size{std::filesystem::file_size(path)} {
 	int file = open(path.c_str(), O_RDONLY);
@@ -208,16 +216,18 @@ Symbol_database::Reader::Symbol_db_iterator Symbol_database::Reader::end() const
 	return {.index = symbols, .reader = this};
 }
 
-std::vector<std::string_view> Symbol_database::Reader::get_libraries(std::string_view symbol, bool prefix_search) const {
-	if (prefix_search) {
-		auto range = std::equal_range(begin(), end(), symbol, [](std::string_view lhs, std::string_view rhs) { return lhs < rhs; });
-		return get_libraries(range.first, range.second);
-	}
+std::vector<std::string_view /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string_view symbol) const {
 	auto it = std::lower_bound(begin(), end(), symbol);
 	if (*it != symbol) {
 		return {};
 	}
-	return get_libraries(it, it + 1);
+	return std::move(get_libraries(it, it + 1).begin()->second);
+}
+
+std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/>
+Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
+	auto range = std::equal_range(begin(), end(), prefix, [](std::string_view lhs, std::string_view rhs) { return lhs < rhs; });
+	return get_libraries(range.first, range.second);
 }
 
 std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {
@@ -226,9 +236,11 @@ std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {
 	return {reinterpret_cast<const char *>(data + offset), sizeof(Offset)};
 }
 
-std::vector<std::string_view> Symbol_database::Reader::get_libraries(Symbol_db_iterator begin, Symbol_db_iterator end) const {
-	std::vector<std::string_view> result;
+std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> Symbol_database::Reader::get_libraries(Symbol_db_iterator begin,
+																															 Symbol_db_iterator end) const {
+	std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> result;
 	while (begin < end) {
+		auto &libs = result[*begin];
 		const std::uint8_t *cur = data + begin.offset();
 		while (*cur++)
 			;
@@ -242,7 +254,7 @@ std::vector<std::string_view> Symbol_database::Reader::get_libraries(Symbol_db_i
 			std::cout << lib_indexes_offset;
 			Offset lib_offset;
 			std::memcpy(&lib_offset, lib_indexes + lib_index * sizeof(Offset), sizeof(Offset));
-			result.push_back(reinterpret_cast<const char *>(data + lib_offset));
+			libs.push_back(reinterpret_cast<const char *>(data + lib_offset));
 		}
 	}
 	return result;
