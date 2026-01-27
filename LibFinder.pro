@@ -6,27 +6,20 @@ CONFIG -= qt
 CONFIG -= warn
 
 SOURCES += main.cpp \
-    lookup.cpp \
     generate.cpp \
     utility.cpp \
     test.cpp \
-    argument_parser.cpp \
     asserts.cpp \
-    reverse_prefix_tree.cpp \
     symbol_database.cpp \
     libparser.cpp
 
 HEADERS += \
     thread_safe_queue.h \
-    lookup.h \
     main.h \
     generate.h \
     utility.h \
     test.h \
-    argument_parser.h \
-    gsl-lite.h \
     asserts.h \
-    reverse_prefix_tree.h \
     symbol_database.h \
     libparser.h
 

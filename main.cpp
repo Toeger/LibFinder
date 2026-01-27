@@ -169,9 +169,7 @@ static void handle_linkcommand(std::span<std::string_view> files) {
 }
 
 int main(int argc, char *argv[]) {
-#ifndef _NDEBUG
-	test();
-#endif
+	assert((test(), true));
 	boost::program_options::options_description options(
 		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder "
 		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "
@@ -212,7 +210,8 @@ int main(int argc, char *argv[]) {
 	if (program_args.count("symbol")) {
 		const auto &prefix = program_args["symbol"].as<std::string>();
 		std::cout << "All symbols that have the prefix \"" << prefix << "\" and their libraries:\n";
-		auto symbols_libs = Symbol_database::Reader{data_base_filepath}.libraries_from_prefix(prefix);
+		Symbol_database::Reader reader{data_base_filepath};
+		auto symbols_libs = reader.libraries_from_prefix(prefix);
 		for (auto &[symbol, libs] : symbols_libs) {
 			std::cout << symbol << '\n';
 			std::sort(std::begin(libs), std::end(libs));

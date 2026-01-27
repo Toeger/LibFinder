@@ -7,9 +7,18 @@
 #include <vector>
 
 namespace Symbol_database {
+	struct Write_stats {
+		std::size_t unique_libs;
+		std::size_t unique_symbols;
+		std::size_t symbols_db_size;
+		std::size_t libs_db_size;
+		std::size_t symbols_index_size;
+		std::size_t libs_index_size;
+	};
+
 	struct Writer {
 		void add(std::string symbol, std::string library);
-		void write(std::filesystem::path path) const;
+		Write_stats write(std::filesystem::path path) const;
 		void merge(Writer &&other);
 		std::size_t size() const;
 

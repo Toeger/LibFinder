@@ -17,10 +17,10 @@ static void test_symbol_loading() {
 
 static void test_symbol_database() {
 	const std::vector<std::vector<std::pair<std::string, std::string>>> test_cases{
-		{{"symbol", "first library"}},
-		{{"symbol", "first library"}, {"other symbol", "second library"}},
-		{{"symbol", "first library"}, {"symbol", "second library"}},
-		{{"symbol", "first library"}, {"other symbol", "first library"}},
+		{{"symbol", "/first library"}},
+		{{"symbol", "/first library"}, {"other symbol", "/second library"}},
+		{{"symbol", "/first library"}, {"symbol", "/second library"}},
+		{{"symbol", "/first library"}, {"other symbol", "/first library"}},
 	};
 	auto libs = [](const std::vector<std::pair<std::string, std::string>> &test_case, std::string_view symbol) {
 		std::set<std::string_view> result;

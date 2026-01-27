@@ -1,5 +1,6 @@
 #include "symbol_database.h"
 
+#include <cassert>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -32,16 +33,22 @@ void Symbol_database::Writer::add(std::string symbol, std::string library) {
 	data.front().push_back({std::move(symbol), std::move(library)});
 }
 
-void Symbol_database::Writer::write(std::filesystem::path path) const {
+Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path) const {
+	Symbol_database::Write_stats stats;
 	std::ofstream file{path, std::ios_base::out | std::ios_base::binary};
 	std::map<std::string /*libpath*/, std::size_t /*libindex*/> lib_db;
 	std::map<std::string /*symbol*/, std::vector<std::size_t /*libindex*/>> symbol_db;
 	for (auto &list : data) {
-		for (auto &entry : list) {
-			const auto lib_index = lib_db.insert({std::move(entry.second), lib_db.size()}).first->second;
-			symbol_db[std::move(entry.first)].push_back(lib_index);
+		for (auto &[symbol, lib] : list) {
+			assert(lib.front() == '/');
+
+			const auto lib_index = lib_db.insert({std::move(lib), lib_db.size()}).first->second;
+			symbol_db[std::move(symbol)].push_back(lib_index);
 		}
 	}
+
+	stats.unique_symbols = symbol_db.size();
+	stats.unique_libs = lib_db.size();
 
 	std::uint8_t symbol_index_size{};
 	for (auto size = symbol_db.size(); size; size >>= 8) {
@@ -50,7 +57,7 @@ void Symbol_database::Writer::write(std::filesystem::path path) const {
 	file << symbol_index_size;
 
 	std::uint8_t lib_index_size{};
-	for (auto size = symbol_db.size(); size; size >>= 8) {
+	for (auto size = lib_db.size(); size; size >>= 8) {
 		lib_index_size++;
 	}
 	file << lib_index_size;
@@ -62,7 +69,7 @@ void Symbol_database::Writer::write(std::filesystem::path path) const {
 	file.write(reinterpret_cast<const char *>(&libs), lib_index_size);
 
 	Offset symbol_indexes_start{};
-	const Offset symbol_index_start_pos = file.tellp();
+	const Offset symbol_index_start_pos = +file.tellp();
 	file.write(reinterpret_cast<const char *>(&symbol_indexes_start), sizeof(Offset)); //placeholder
 
 	Offset lib_indexes_start{};
@@ -70,36 +77,46 @@ void Symbol_database::Writer::write(std::filesystem::path path) const {
 
 	//symbol_db
 	std::vector<Offset> symbol_indexes;
+	stats.symbols_db_size = +file.tellp();
 	symbol_indexes.reserve(symbols);
-	for (auto &[symbol, libindexes] : symbol_db) {
-		symbol_indexes.push_back(file.tellp());
+	for (const auto &[symbol, libindexes] : symbol_db) {
+		symbol_indexes.push_back(+file.tellp());
 		file << symbol << '\0';
-		for (auto &index : libindexes) {
-			file.write(reinterpret_cast<const char *>(&index), lib_index_size);
+		for (const auto &libindex : libindexes) {
+			file.write(reinterpret_cast<const char *>(&libindex), lib_index_size);
 		}
 	}
+	stats.symbols_db_size = +file.tellp() - stats.symbols_db_size;
 
 	//symbol_indexes
-	symbol_indexes_start = file.tellp();
+	stats.symbols_index_size = +file.tellp();
+	symbol_indexes_start = +file.tellp();
 	symbol_indexes.push_back(symbol_indexes_start);
 	file.write(reinterpret_cast<char *>(symbol_indexes.data()), symbol_indexes.size() * sizeof(Offset));
+	stats.symbols_index_size = +file.tellp() - stats.symbols_index_size;
 
 	//lib_db
 	std::vector<Offset> lib_indexes;
+	stats.libs_db_size = +file.tellp();
 	lib_indexes.resize(libs);
 	for (auto &[lib, lib_index] : lib_db) {
-		lib_indexes[lib_index] = file.tellp();
+		lib_indexes[lib_index] = +file.tellp();
 		file << lib << '\0';
 	}
+	stats.libs_db_size = +file.tellp() - stats.libs_db_size;
 
 	//lib_indexes
-	lib_indexes_start = file.tellp();
+	stats.libs_index_size = +file.tellp();
+	lib_indexes_start = +file.tellp();
 	file.write(reinterpret_cast<char *>(lib_indexes.data()), lib_indexes.size() * sizeof(Offset));
+	stats.libs_index_size = +file.tellp() - stats.libs_index_size;
 
 	//fill placeholders
 	file.seekp(symbol_index_start_pos);
 	file.write(reinterpret_cast<const char *>(&symbol_indexes_start), sizeof(Offset));
 	file.write(reinterpret_cast<const char *>(&lib_indexes_start), sizeof(Offset));
+
+	return stats;
 }
 
 void Symbol_database::Writer::merge(Writer &&other) {
@@ -128,7 +145,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	std::memcpy(&symbols, cur, symbol_index_size);
 	cur += symbol_index_size;
 	std::memcpy(&libs, cur, lib_index_size);
-	cur += symbol_index_size;
+	cur += lib_index_size;
 	Offset symbol_indexes_start;
 	std::memcpy(&symbol_indexes_start, cur, sizeof(Offset));
 	cur += sizeof(Offset);
@@ -139,6 +156,25 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	lib_indexes = data + lib_indexes_start;
 	symbol_db = cur;
 	lib_db = data + symbol_indexes_start + (symbols + 1) * sizeof(Offset);
+	assert((
+		[lib_indexes_start, libs = libs, data = data] {
+			for (std::size_t lib = 0; lib < libs; lib++) {
+				Offset pos;
+				std::memcpy(&pos, data + lib_indexes_start + lib * sizeof(Offset), sizeof(Offset));
+				assert(data[pos] == '/');
+				//std::cout << lib << ": " << data + pos << std::endl;
+			}
+		}(),
+		true));
+	assert((
+		[symbol_indexes_start, symbols = symbols, data = data] {
+			for (std::size_t symbol = 0; symbol < symbols; symbol++) {
+				Offset pos;
+				std::memcpy(&pos, data + symbol_indexes_start + symbol * sizeof(Offset), sizeof(Offset));
+				//std::cout << symbol << ": " << data + pos << std::endl;
+			}
+		}(),
+		true));
 }
 
 Symbol_database::Reader::~Reader() {
@@ -198,9 +234,9 @@ struct Symbol_database::Reader::Symbol_db_iterator {
 		return *this;
 	}
 	auto operator<=>(const Symbol_db_iterator &) const = default;
-	std::size_t offset() const {
-		std::size_t result{};
-		std::memcpy(&result, reader->symbol_indexes + index * sizeof(Offset), reader->symbol_index_size);
+	Offset offset() const {
+		Offset result;
+		std::memcpy(&result, reader->symbol_indexes + index * sizeof(Offset), sizeof(Offset));
 		return result;
 	}
 
@@ -218,7 +254,7 @@ Symbol_database::Reader::Symbol_db_iterator Symbol_database::Reader::end() const
 
 std::vector<std::string_view /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string_view symbol) const {
 	auto it = std::lower_bound(begin(), end(), symbol);
-	if (*it != symbol) {
+	if (it == end() or *it != symbol) {
 		return {};
 	}
 	return std::move(get_libraries(it, it + 1).begin()->second);
@@ -226,8 +262,29 @@ std::vector<std::string_view /*lib*/> Symbol_database::Reader::libraries_from_sy
 
 std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/>
 Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
-	auto range = std::equal_range(begin(), end(), prefix, [](std::string_view lhs, std::string_view rhs) { return lhs < rhs; });
-	return get_libraries(range.first, range.second);
+	assert(([&] {
+		auto first_non_sorted = std::is_sorted_until(begin(), end());
+		if (first_non_sorted != end()) {
+			std::cout << "Searching " << end().index - 1 << " symbols" << std::endl;
+			std::cout << +(*first_non_sorted).front() << " at index " << first_non_sorted.index << std::endl;
+			std::cout << " with libraries " << first_non_sorted.index << '\n';
+			auto found_libs = get_libraries(first_non_sorted, first_non_sorted + 1);
+			std::cout << found_libs.size() << std::flush;
+			for (auto &lib : found_libs.begin()->second) {
+				std::cout << '\t' << lib << std::endl;
+			}
+			return false;
+		}
+		return true;
+	}()));
+	auto start_it = std::lower_bound(begin(), end(), prefix);
+	if (start_it == end()) {
+		return {};
+	}
+	auto end_it = start_it;
+	while (++end_it < end() and (*end_it).starts_with(prefix))
+		;
+	return get_libraries(start_it, end_it);
 }
 
 std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {
@@ -240,7 +297,7 @@ std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*li
 																															 Symbol_db_iterator end) const {
 	std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> result;
 	while (begin < end) {
-		auto &libs = result[*begin];
+		auto &found_libs = result[*begin];
 		const std::uint8_t *cur = data + begin.offset();
 		while (*cur++)
 			;
@@ -249,12 +306,10 @@ std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*li
 		while (cur < end_pos) {
 			std::size_t lib_index{};
 			std::memcpy(&lib_index, cur, lib_index_size);
-			cur += lib_index_size;
-			const auto lib_indexes_offset = lib_indexes - data;
-			std::cout << lib_indexes_offset;
 			Offset lib_offset;
 			std::memcpy(&lib_offset, lib_indexes + lib_index * sizeof(Offset), sizeof(Offset));
-			libs.push_back(reinterpret_cast<const char *>(data + lib_offset));
+			found_libs.push_back(reinterpret_cast<const char *>(data + lib_offset));
+			cur += lib_index_size;
 		}
 	}
 	return result;
