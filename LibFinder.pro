@@ -11,7 +11,8 @@ SOURCES += main.cpp \
     test.cpp \
     asserts.cpp \
     symbol_database.cpp \
-    libparser.cpp
+    libparser.cpp \
+    symbol_matcher.cpp
 
 HEADERS += \
     thread_safe_queue.h \
@@ -21,7 +22,9 @@ HEADERS += \
     test.h \
     asserts.h \
     symbol_database.h \
-    libparser.h
+    libparser.h \
+    external/nlohmann/json.hpp \
+    symbol_matcher.h
 
 LIBS += -lpthread
 LIBS += -lboost_system

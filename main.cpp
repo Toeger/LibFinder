@@ -2,6 +2,7 @@
 #include "generate.h"
 #include "libparser.h"
 #include "symbol_database.h"
+#include "symbol_matcher.h"
 #include "test.h"
 #include "utility.h"
 
@@ -11,6 +12,7 @@
 #include <format>
 #include <iostream>
 #include <print>
+#include <ranges>
 #include <thread>
 
 const std::string data_base_path = [] {
@@ -22,136 +24,8 @@ const std::string data_base_path = [] {
 //TODO: find a way to share the files between users
 const std::string data_base_filepath = data_base_path + "/database";
 
-struct Symbol_matcher {
-	struct Type_and_origin_index {
-		Symbol_type type;
-		std::size_t origin_index;
-	};
-
-	void add(Symbol symbol, std::string_view origin) {
-		switch (symbol.type) {
-			case Symbol_type::undefined:
-				if (defined.contains(symbol.name)) {
-					return;
-				}
-				undefined[symbol.name] = {symbol.type, origin_index(origin)};
-				break;
-			case Symbol_type::defined:
-				if (undefined.contains(symbol.name)) {
-					undefined.erase(symbol.name);
-				}
-				if (auto it = defined.find(symbol.name); it != std::end(defined)) {
-					if (it->second.type != Symbol_type::defined_weak) {
-						throw std::runtime_error{std::format("Error: Duplicate symbol definition for {}\nDefined in {} and {}", symbol.demangled_name(), origin,
-															 origins[it->second.origin_index])};
-					}
-				} else {
-					defined[symbol.name] = {symbol.type, origin_index(origin)};
-				}
-				break;
-			case Symbol_type::defined_weak:
-				if (undefined.contains(symbol.name)) {
-					undefined.erase(symbol.name);
-				}
-				defined.insert({symbol.name, {symbol.type, origin_index(origin)}});
-				break;
-		}
-	}
-
-	struct Unresolved_result {
-		std::string symbol;
-		std::string origin;
-	};
-
-	[[nodiscard]] std::expected<std::string, Unresolved_result> resolve_to_command() {
-		std::vector<std::string> libraries;
-		for (auto it = std::begin(undefined); it != std::end(undefined);) {
-			auto libs = db.libraries_from_symbol(it->first);
-			if (libs.empty()) {
-				return std::unexpected(Unresolved_result{it->first, origins[it->second.origin_index]});
-			}
-			if (libs.size() == 1) {
-				add_lib(libs[0]); //invalidates current iterator
-				it = std::begin(undefined);
-				continue;
-			}
-			++it; //ignore ambiguous options for now
-		}
-		std::string result;
-		const char *sep = "";
-		for (auto &lib : libraries) {
-			result += sep + lib;
-			sep = " ";
-		}
-		return result;
-	}
-
-	struct Duplicate_symbol_error {
-		Symbol symbol;
-		std::string lib1, lib2;
-	};
-
-	std::expected<void, Duplicate_symbol_error> add_lib(std::string_view lib) {
-		auto file_type = get_output_from_command(std::format("file \"{}\"", lib));
-		if (file_type.contains("symbolic link")) {
-			auto target = get_output_from_command(std::format("readlink -f \"{}\"", lib));
-			target.pop_back();
-			file_type = get_output_from_command("file \"" + target + '"');
-		}
-		bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
-		if (not is_shared_object and not file_type.contains("current ar archive")) {
-			throw std::runtime_error{std::format("{} is not accessible", lib)};
-		}
-
-		for (auto &symbol : parse_lib(lib, is_shared_object)) {
-			switch (symbol.type) {
-				case Symbol_type::defined:
-					undefined.erase(symbol.name);
-					if (auto it = defined.find(symbol.name); it != std::end(defined)) {
-						if (it->second.type != Symbol_type::defined_weak) {
-							return std::unexpected{
-								Duplicate_symbol_error{.symbol = symbol, .lib1 = std::string{lib}, .lib2 = origins[it->second.origin_index]}};
-						}
-						it->second.type = symbol.type;
-					} else {
-						defined.insert({symbol.name, {.type = symbol.type, .origin_index = origin_index(lib)}});
-					}
-					break;
-				case Symbol_type::defined_weak:
-					undefined.erase(symbol.name);
-					defined.insert({symbol.name, {.type = symbol.type, .origin_index = origin_index(lib)}});
-					break;
-				case Symbol_type::undefined:
-					if (defined.contains(symbol.name)) {
-						break;
-					}
-					undefined.insert({symbol.name, {.type = symbol.type, .origin_index = origin_index(lib)}});
-					break;
-			}
-		}
-		return {};
-	}
-
-	bool is_resolved() const {
-		return undefined.empty();
-	}
-
-	std::size_t origin_index(std::string_view origin) {
-		auto pos = std::ranges::find(origins, origin);
-		std::size_t index = pos - std::begin(origins);
-		if (index == std::size(origins)) {
-			origins.emplace_back(origin);
-		}
-		return index;
-	}
-
-	std::map<std::string /*symbol*/, Type_and_origin_index> defined, undefined;
-	std::vector<std::string /*paths*/> origins;
-	Symbol_database::Reader db{data_base_filepath};
-};
-
 static void handle_linkcommand(std::span<std::string_view> files) {
-	Symbol_matcher symbol_matcher;
+	Symbol_matcher symbol_matcher{data_base_filepath};
 	for (auto &file : files) {
 		for (auto &symbol : parse_lib(file, false)) {
 			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
@@ -161,17 +35,14 @@ static void handle_linkcommand(std::span<std::string_view> files) {
 	}
 	std::println("{} defined and {} undefined symbols found before linking", symbol_matcher.defined.size(), symbol_matcher.undefined.size());
 	auto result = symbol_matcher.resolve_to_command();
-	if (result) {
-		std::println("{}", *result);
-	} else {
-		std::println("Failed to resolve symbol {} required from {}", Symbol::demangled_name(result.error().symbol), result.error().origin);
-	}
+	std::println("{}", result);
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) try {
 	assert((test(), true));
 	boost::program_options::options_description options(
-		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with 'libfinder "
+		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with "
+		"'libfinder "
 		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "
 		"[symbol].\nParameters");
 	int jobs = 0;
@@ -232,4 +103,6 @@ int main(int argc, char *argv[]) {
 		return 0;
 	}
 	std::cout << '\n';
+} catch (std::runtime_error &error) {
+	std::println(stderr, "{}", error.what());
 }
