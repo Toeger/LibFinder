@@ -4,6 +4,11 @@
 #include <string>
 #include <string_view>
 
-std::string get_output_from_command(std::string_view command);
+struct Output {
+	std::string output;
+	std::string error;
+};
+
+Output get_output_from_command(std::string_view command);
 
 #endif // UTILITY_H

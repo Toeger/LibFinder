@@ -50,7 +50,6 @@ namespace Symbol_database {
 		const std::uint8_t *symbol_indexes;
 		const std::uint8_t *lib_db;
 		const std::uint8_t *lib_indexes;
-		std::uint8_t symbol_index_size;
 		std::uint8_t lib_index_size;
 	};
 }; // namespace Symbol_database

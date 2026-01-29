@@ -16,7 +16,7 @@
 #include <thread>
 
 const std::string data_base_path = [] {
-	auto username = get_output_from_command("whoami");
+	auto username = get_output_from_command("whoami").output;
 	username.pop_back(); //remove newline
 	return "/home/" + username + "/.libfinder";
 }();
@@ -26,6 +26,7 @@ const std::string data_base_filepath = data_base_path + "/database";
 
 static void handle_linkcommand(std::span<std::string_view> files) {
 	Symbol_matcher symbol_matcher{data_base_filepath};
+	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/Prop/build/test/compile_commands.json");
 	for (auto &file : files) {
 		for (auto &symbol : parse_lib(file, false)) {
 			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {

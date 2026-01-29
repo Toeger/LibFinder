@@ -11,13 +11,11 @@
 
 /* Symbol database file format
  *
- * Type <Symbol_index> is an index type with variable byte size symbol_index_size
  * Type <Lib_index> is an index type with variable byte size lib_index_size
  * Type <Offset> is a file offset with fixed type <std::uint32_t>
  *
- * <std::uint8_t> symbol_index_size; //number of bytes of Symbol_index type
  * <std::uint8_t> lib_index_size; //number of bytes of Lib_index type
- * <Symbol_index> symbols; //number of symbol entries
+ * <std::uint32_t> symbols; //number of symbol entries
  * <Lib_index> libs; //number of lib entries
  * <Offset> symbol_indexes_start;
  * <Offset> lib_indexes_start;
@@ -50,20 +48,14 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	stats.unique_symbols = symbol_db.size();
 	stats.unique_libs = lib_db.size();
 
-	std::uint8_t symbol_index_size{};
-	for (auto size = symbol_db.size(); size; size >>= 8) {
-		symbol_index_size++;
-	}
-	file << symbol_index_size;
-
 	std::uint8_t lib_index_size{};
 	for (auto size = lib_db.size(); size; size >>= 8) {
 		lib_index_size++;
 	}
 	file << lib_index_size;
 
-	auto symbols = symbol_db.size();
-	file.write(reinterpret_cast<const char *>(&symbols), symbol_index_size);
+	std::uint32_t symbols = symbol_db.size();
+	file.write(reinterpret_cast<const char *>(&symbols), sizeof(std::uint32_t));
 
 	auto libs = lib_db.size();
 	file.write(reinterpret_cast<const char *>(&libs), lib_index_size);
@@ -140,10 +132,9 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	data = static_cast<const uint8_t *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0));
 	close(file);
 	const std::uint8_t *cur = data;
-	symbol_index_size = *cur++;
 	lib_index_size = *cur++;
-	std::memcpy(&symbols, cur, symbol_index_size);
-	cur += symbol_index_size;
+	std::memcpy(&symbols, cur, sizeof(std::uint32_t));
+	cur += sizeof(std::uint32_t);
 	std::memcpy(&libs, cur, lib_index_size);
 	cur += lib_index_size;
 	Offset symbol_indexes_start;

@@ -1,8 +1,10 @@
 #include "symbol_matcher.h"
+#include "external/nlohmann/json/json.hpp"
 #include "utility.h"
 
 #include <algorithm>
 #include <cassert>
+#include <fstream>
 #include <iostream>
 #include <ranges>
 
@@ -39,12 +41,84 @@ void Symbol_matcher::add(Symbol symbol, std::string_view origin) {
 	}
 }
 
+void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path) {
+	std::ifstream compile_commands{file_path};
+	if (not compile_commands) {
+		throw std::runtime_error{std::format("Failed opening file {}", file_path.string())};
+	}
+	for (auto &obj : nlohmann::json::parse(compile_commands)) {
+		std::filesystem::path directory{obj["directory"]};
+		std::filesystem::path file{obj["file"]};
+		std::filesystem::path output{obj["output"]};
+		std::vector<std::string> args;
+		if (auto it = obj.find("args"); it != std::end(obj)) {
+			for (auto &arg : *it) {
+				args.push_back(arg);
+			}
+		} else {
+			std::string arg;
+			bool escape = false;
+			bool quoted = false;
+			for (char c : std::string{obj["command"]}) {
+				switch (c) {
+					case ' ':
+						if (quoted) {
+							arg.push_back(c);
+						} else {
+							if (not arg.empty()) {
+								args.push_back(std::move(arg));
+								arg.clear();
+							}
+						}
+						break;
+					case '\\':
+						if (escape) {
+							arg.push_back(c);
+						} else {
+							escape = true;
+						}
+						break;
+					case '"':
+						if (escape) {
+							arg.push_back(c);
+							break;
+						}
+						quoted = not quoted;
+						break;
+					default:
+						if (escape) {
+							throw std::runtime_error{std::format("Unexpected escape sequence \\{}", c)};
+						}
+						arg.push_back(c);
+						break;
+				}
+			}
+			if (escape) {
+				throw std::runtime_error{"Parse error: unexpected \\"};
+			}
+			if (quoted) {
+				throw std::runtime_error{"Parse error: unescaped quote"};
+			}
+			if (not arg.empty()) {
+				args.push_back(std::move(arg));
+			}
+		}
+		if (args.empty()) {
+			throw std::runtime_error{"Empty command"};
+		}
+		std::filesystem::path output_path{directory / output};
+		auto &priorities = path_priorities[output_path];
+		//auto &compiler = args[0];
+		priorities.push_back({});
+	}
+}
+
 void Symbol_matcher::add_lib(std::string_view lib) {
-	auto file_type = get_output_from_command(std::format("file \"{}\"", lib));
+	auto file_type = get_output_from_command(std::format("file \"{}\"", lib)).output;
 	if (file_type.contains("symbolic link")) {
-		auto target = get_output_from_command(std::format("readlink -f \"{}\"", lib));
+		auto target = get_output_from_command(std::format("readlink -f \"{}\"", lib)).output;
 		target.pop_back();
-		file_type = get_output_from_command("file \"" + target + '"');
+		file_type = get_output_from_command("file \"" + target + '"').output;
 	}
 	bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
 	if (not is_shared_object and not file_type.contains("current ar archive")) {

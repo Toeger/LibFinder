@@ -20,13 +20,13 @@ void update(int jobs) {
 		std::vector<std::string> queue;
 		//add all lib*.so files to queue
 		{
-			std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)"));
+			std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.so$)").output);
 			for (std::string line; std::getline(is, line);) {
 				queue.push_back(std::move(line));
 			}
 		}
 		{
-			std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.a$)"));
+			std::istringstream is(get_output_from_command(R"(locate -ber lib.*\.a$)").output);
 			for (std::string line; std::getline(is, line);) {
 				queue.push_back(std::move(line));
 			}
@@ -44,11 +44,11 @@ void update(int jobs) {
 			if (lib_index * 100 / library_candidates > ((lib_index - 1) * 100) / library_candidates) {
 				std::cout << lib_index * 100 / library_candidates << "%\r" << std::flush;
 			}
-			auto file_type = get_output_from_command("file \"" + file_paths[lib_index] + '"');
+			auto file_type = get_output_from_command("file \"" + file_paths[lib_index] + '"').output;
 			if (file_type.contains("symbolic link")) {
-				auto target = get_output_from_command("readlink -f \"" + file_paths[lib_index] + '"');
+				auto target = get_output_from_command("readlink -f \"" + file_paths[lib_index] + '"').output;
 				target.pop_back();
-				file_type = get_output_from_command("file \"" + target + '"');
+				file_type = get_output_from_command("file \"" + target + '"').output;
 			}
 			bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
 			if (not is_shared_object and not file_type.contains("current ar archive")) {
