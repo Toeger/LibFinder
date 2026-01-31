@@ -6,6 +6,7 @@
 #include <cassert>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <ranges>
 
 Symbol_matcher::Symbol_matcher(std::string_view data_base)
@@ -108,17 +109,27 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 		}
 		std::filesystem::path output_path{directory / output};
 		auto &priorities = path_priorities[output_path];
-		//auto &compiler = args[0];
+		auto &compiler = args[0];
+		auto compiler_output = get_output_from_command(compiler.c_str(), {"-E", "-v", "-"});
+		//std::println(stderr, "Output: {}", compiler_output);
+
+		//views | std::ranges::views::filter([](std::string_view line) { return line.starts_with("LIBRARY_PATH="); });
+		for (auto lib : compiler_output | std::ranges::views::split('\n') | std::ranges::views::filter([](auto line) {
+							return std::string_view{line}.starts_with("LIBRARY_PATH=");
+						}) | std::ranges::views::take(1) //| std::ranges::views::split(':')
+		) {
+			std::cerr << std::string_view{lib} << '\n';
+		}
 		priorities.push_back({});
 	}
 }
 
-void Symbol_matcher::add_lib(std::string_view lib) {
-	auto file_type = get_output_from_command(std::format("file \"{}\"", lib)).output;
+void Symbol_matcher::add_lib(std::string lib) {
+	auto file_type = get_output_from_command("file", {lib});
 	if (file_type.contains("symbolic link")) {
-		auto target = get_output_from_command(std::format("readlink -f \"{}\"", lib)).output;
+		auto target = get_output_from_command("readlink", {"-f", lib});
 		target.pop_back();
-		file_type = get_output_from_command("file \"" + target + '"').output;
+		file_type = get_output_from_command("file", {target});
 	}
 	bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
 	if (not is_shared_object and not file_type.contains("current ar archive")) {
@@ -131,7 +142,7 @@ void Symbol_matcher::add_lib(std::string_view lib) {
 				undefined.erase(symbol.name);
 				if (auto it = defined.find(symbol.name); it != std::end(defined)) {
 					if (it->second.type != Symbol_type::defined_weak) {
-						throw Duplicate_symbol_error{{.symbol = symbol, .lib1 = std::string{lib}, .lib2 = origins[it->second.origin_index]}};
+						throw Duplicate_symbol_error{{.symbol = symbol, .lib1 = lib, .lib2 = origins[it->second.origin_index]}};
 					}
 					it->second.type = symbol.type;
 				} else {
@@ -171,7 +182,7 @@ std::string Symbol_matcher::resolve_to_command() {
 			throw Unresolved_result{{.symbol = symbol, .origin = origins[type_origin.origin_index]}};
 		}
 		if (libs.size() == 1) {
-			add_lib(libs[0]); //invalidates current iterator
+			add_lib(std::string{libs[0]}); //invalidates current iterator
 			it = std::begin(undefined);
 			continue;
 		}

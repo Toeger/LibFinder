@@ -2,13 +2,8 @@
 #define UTILITY_H
 
 #include <string>
-#include <string_view>
+#include <vector>
 
-struct Output {
-	std::string output;
-	std::string error;
-};
-
-Output get_output_from_command(std::string_view command);
+std::string get_output_from_command(const char *command, std::vector<std::string> argv);
 
 #endif // UTILITY_H

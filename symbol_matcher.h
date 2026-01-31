@@ -48,7 +48,7 @@ struct Symbol_matcher {
 
 	std::string resolve_to_command();
 
-	void add_lib(std::string_view lib);
+	void add_lib(std::string lib);
 
 	bool is_resolved() const;
 

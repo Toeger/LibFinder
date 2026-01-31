@@ -1,5 +1,4 @@
 #include "libparser.h"
-#include "asserts.h"
 #include "utility.h"
 
 #include <format>
@@ -13,7 +12,7 @@ std::vector<Symbol> parse_lib(std::string_view path, bool is_shared_object) {
 	};
 	std::vector<Symbol> result;
 	if (is_shared_object) {
-		auto symbols = get_output_from_command(std::format("objdump -Tw \"{}\"", path)).output;
+		auto symbols = get_output_from_command("objdump", {"-Tw", std::string{path}});
 		for (auto line_it : std::ranges::split_view{std::string_view{symbols}, std::string_view{"\n"}}) {
 			std::string_view line{line_it};
 			if (line.size() < 40) {
@@ -44,7 +43,7 @@ std::vector<Symbol> parse_lib(std::string_view path, bool is_shared_object) {
 			}
 		}
 	} else {
-		auto symbols = get_output_from_command(std::format("nm -g --quiet \"{}\"", path)).output;
+		auto symbols = get_output_from_command("nm", {"-g", "--quiet", std::string{path}});
 		for (auto line_it : std::ranges::split_view{std::string_view{symbols}, std::string_view{"\n"}}) {
 			std::string_view line{line_it};
 			if (line.size() < 20) {
@@ -90,8 +89,8 @@ std::string Symbol::demangled_name() const {
 	return demangled_name(name);
 }
 
-std::string Symbol::demangled_name(std::string_view name) {
-	auto result = get_output_from_command(std::format("c++filt {}", name)).output;
+std::string Symbol::demangled_name(std::string name) {
+	auto result = get_output_from_command("c++filt", {std::move(name)});
 	result.pop_back();
 	return result;
 }

@@ -12,7 +12,8 @@ SOURCES += main.cpp \
     asserts.cpp \
     symbol_database.cpp \
     libparser.cpp \
-    symbol_matcher.cpp
+    symbol_matcher.cpp \
+    raii.cpp
 
 HEADERS += \
     thread_safe_queue.h \
@@ -24,7 +25,8 @@ HEADERS += \
     symbol_database.h \
     libparser.h \
     external/nlohmann/json.hpp \
-    symbol_matcher.h
+    symbol_matcher.h \
+    raii.h
 
 LIBS += -lpthread
 LIBS += -lboost_system
@@ -34,8 +36,8 @@ QMAKE_CXXFLAGS += -std=c++26
 QMAKE_CXXFLAGS_DEBUG += -O0 -fno-omit-frame-pointer -Wall -Werror -fdiagnostics-color -Wold-style-cast -fdiagnostics-all-candidates #-Wfatal-errors
 QMAKE_CXXFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
 QMAKE_LFLAGS_DEBUG += -fsanitize=undefined,address#,safe-stack
-QMAKE_CXXFLAGS_PROFILE += -DNDEBUG
 QMAKE_CXXFLAGS_RELEASE += -O3 -DNDEBUG
+QMAKE_CXXFLAGS_PROFILE += QMAKE_CXXFLAGS_RELEASE -DNDEBUG -g -fno-omit-frame-pointer
 gcc{
     clang{
         #clang pretends to be gcc but doesn't support -flto

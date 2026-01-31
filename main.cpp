@@ -16,7 +16,7 @@
 #include <thread>
 
 const std::string data_base_path = [] {
-	auto username = get_output_from_command("whoami").output;
+	auto username = get_output_from_command("whoami", {});
 	username.pop_back(); //remove newline
 	return "/home/" + username + "/.libfinder";
 }();
@@ -40,7 +40,7 @@ static void handle_linkcommand(std::span<std::string_view> files) {
 }
 
 int main(int argc, char *argv[]) try {
-	assert((test(), true));
+	//assert((test(), true));
 	boost::program_options::options_description options(
 		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with "
 		"'libfinder "
@@ -67,6 +67,9 @@ int main(int argc, char *argv[]) try {
 	}
 	boost::program_options::notify(program_args);
 	if (program_args.count("print")) {
+		const auto output = get_output_from_command("/usr/bin/c++", {"-E", "-v", "-"});
+		//const auto output = get_output_from_command("ls", {"-lisah"});
+		std::println("Out: {}", output);
 		return 0;
 	}
 	if (program_args.count("help")) {
