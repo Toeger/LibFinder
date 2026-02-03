@@ -17,13 +17,15 @@ namespace Symbol_database {
 	};
 
 	struct Writer {
-		void add(std::string symbol, std::string library);
-		Write_stats write(std::filesystem::path path) const;
+		Writer(std::size_t libraries);
+		void add(std::string symbol, std::size_t lib_id);
+		Write_stats write(std::filesystem::path path, const std::vector<std::string> &libraries);
 		void merge(Writer &&other);
 		std::size_t size() const;
 
 		private:
-		std::vector<std::vector<std::pair<std::string /*symbol*/, std::string /*library*/>>> data{{}};
+		std::vector<std::vector<std::pair<std::string /*symbol*/, std::size_t /*libindex*/>>> data{{}};
+		std::uint8_t lib_index_size;
 	};
 
 	struct Reader {

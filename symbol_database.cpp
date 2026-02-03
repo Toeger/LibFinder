@@ -1,4 +1,5 @@
 #include "symbol_database.h"
+#include "profile.h"
 
 #include <cassert>
 #include <cstring>
@@ -10,54 +11,50 @@
 #include <unistd.h>
 
 /* Symbol database file format
+ * Type Lib_index is an index type with variable byte size lib_index_size
+ * Type Offset is a file offset, alias for std::uint32_t
  *
- * Type <Lib_index> is an index type with variable byte size lib_index_size
- * Type <Offset> is a file offset with fixed type <std::uint32_t>
- *
- * <std::uint8_t> lib_index_size; //number of bytes of Lib_index type
- * <std::uint32_t> symbols; //number of symbol entries
- * <Lib_index> libs; //number of lib entries
- * <Offset> symbol_indexes_start;
- * <Offset> lib_indexes_start;
- * <char *symbol\0><Lib_index libs[]> symbol_db[db_index_size]; //symbol entries of variable size, indexed by symbol_indexes
- * <Offset> symbol_indexes[symbols]; //offsets of symbols indexes
- * <char *lib\0> lib_db[lib_index_size]; //lib entries of variable size, indexed by lib_indexes
- * <Offset> lib_indexes[libs]; //offsets of lib indexes
+ * char magic_number[12]; //"LibFinderV1\0"
+ * std::uint8_t lib_index_size; //number of bytes of Lib_index type
+ * std::uint32_t symbols; //number of symbol entries
+ * Lib_index libs; //number of lib entries
+ * Offset symbol_indexes_start;
+ * Offset lib_indexes_start;
+ * [char *symbol, '\0', Lib_index libs[]] symbol_db[db_index_size]; //symbol entries of variable size, indexed by symbol_indexes
+ * Offset symbol_indexes[symbols]; //offsets of symbols indexes
+ * char lib_db[][lib_index_size]; //lib entries of variable size, indexed by lib_indexes
+ * Offset lib_indexes[libs]; //offsets of lib indexes, contains an extra entry for past symbol_db
  */
 
+constexpr char version[12] = "LibFinderV1";
 using Offset = std::uint32_t;
 
-void Symbol_database::Writer::add(std::string symbol, std::string library) {
-	data.front().push_back({std::move(symbol), std::move(library)});
+void Symbol_database::Writer::add(std::string symbol, std::size_t lib_id) {
+	data.front().push_back({std::move(symbol), lib_id});
 }
 
-Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path) const {
+Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
 	Symbol_database::Write_stats stats;
 	std::ofstream file{path, std::ios_base::out | std::ios_base::binary};
-	std::map<std::string /*libpath*/, std::size_t /*libindex*/> lib_db;
-	std::map<std::string /*symbol*/, std::vector<std::size_t /*libindex*/>> symbol_db;
+	std::map<std::string /*symbol+ids*/, std::string /*libs*/> symbol_db;
 	for (auto &list : data) {
 		for (auto &[symbol, lib] : list) {
-			assert(lib.front() == '/');
-
-			const auto lib_index = lib_db.insert({std::move(lib), lib_db.size()}).first->second;
-			symbol_db[std::move(symbol)].push_back(lib_index);
+			symbol_db[symbol].append(std::string_view{reinterpret_cast<const char *>(&lib), lib_index_size});
 		}
 	}
 
-	stats.unique_symbols = symbol_db.size();
-	stats.unique_libs = lib_db.size();
+	PROF;
 
-	std::uint8_t lib_index_size{};
-	for (auto size = lib_db.size(); size; size >>= 8) {
-		lib_index_size++;
-	}
+	stats.unique_symbols = symbol_db.size();
+	stats.unique_libs = libraries.size();
+
+	file.write(version, sizeof(version));
 	file << lib_index_size;
 
 	std::uint32_t symbols = symbol_db.size();
 	file.write(reinterpret_cast<const char *>(&symbols), sizeof(std::uint32_t));
 
-	auto libs = lib_db.size();
+	auto libs = libraries.size();
 	file.write(reinterpret_cast<const char *>(&libs), lib_index_size);
 
 	Offset symbol_indexes_start{};
@@ -73,10 +70,8 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	symbol_indexes.reserve(symbols);
 	for (const auto &[symbol, libindexes] : symbol_db) {
 		symbol_indexes.push_back(+file.tellp());
-		file << symbol << '\0';
-		for (const auto &libindex : libindexes) {
-			file.write(reinterpret_cast<const char *>(&libindex), lib_index_size);
-		}
+		file.write(symbol.c_str(), symbol.size() + 1);
+		file.write(libindexes.c_str(), libindexes.size());
 	}
 	stats.symbols_db_size = +file.tellp() - stats.symbols_db_size;
 
@@ -90,10 +85,10 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	//lib_db
 	std::vector<Offset> lib_indexes;
 	stats.libs_db_size = +file.tellp();
-	lib_indexes.resize(libs);
-	for (auto &[lib, lib_index] : lib_db) {
-		lib_indexes[lib_index] = +file.tellp();
-		file << lib << '\0';
+	lib_indexes.reserve(libraries.size());
+	for (auto &lib : libraries) {
+		lib_indexes.push_back(+file.tellp());
+		file.write(lib.data(), lib.size() + 1);
 	}
 	stats.libs_db_size = +file.tellp() - stats.libs_db_size;
 
@@ -108,7 +103,17 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	file.write(reinterpret_cast<const char *>(&symbol_indexes_start), sizeof(Offset));
 	file.write(reinterpret_cast<const char *>(&lib_indexes_start), sizeof(Offset));
 
+	PROF;
+
 	return stats;
+}
+
+Symbol_database::Writer::Writer(std::size_t libraries)
+	: lib_index_size{} {
+	while (libraries > 255) {
+		libraries /= 256;
+		lib_index_size++;
+	}
 }
 
 void Symbol_database::Writer::merge(Writer &&other) {
@@ -132,6 +137,10 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	data = static_cast<const uint8_t *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0));
 	close(file);
 	const std::uint8_t *cur = data;
+	if (std::memcmp(data, version, sizeof(version))) {
+		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.string())};
+	}
+	cur += sizeof(version);
 	lib_index_size = *cur++;
 	std::memcpy(&symbols, cur, sizeof(std::uint32_t));
 	cur += sizeof(std::uint32_t);

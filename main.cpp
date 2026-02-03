@@ -28,7 +28,7 @@ static void handle_linkcommand(std::span<std::string_view> files) {
 	Symbol_matcher symbol_matcher{data_base_filepath};
 	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/Prop/build/test/compile_commands.json");
 	for (auto &file : files) {
-		for (auto &symbol : parse_lib(file, false)) {
+		for (auto &symbol : parse_lib(file)) {
 			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
 				symbol_matcher.add(symbol, file);
 			}

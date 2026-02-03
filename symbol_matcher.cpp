@@ -136,7 +136,7 @@ void Symbol_matcher::add_lib(std::string lib) {
 		throw std::runtime_error{std::format("{} is not accessible", lib)};
 	}
 
-	for (auto &symbol : parse_lib(lib, is_shared_object)) {
+	for (auto &symbol : parse_lib(lib)) {
 		switch (symbol.type) {
 			case Symbol_type::defined:
 				undefined.erase(symbol.name);

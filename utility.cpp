@@ -101,7 +101,7 @@ static std::mutex popen_mutex;
 std::string get_output_from_command(const char *command, std::vector<std::string> argv) {
 	std::string com = command;
 	for (auto &arg : argv) {
-		com += " \"" + arg + '"';
+		com += " \"" + arg + "\" 2>/dev/null";
 	}
 	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{nullptr};
 	{
