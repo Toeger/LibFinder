@@ -23,21 +23,16 @@ void update(int jobs) {
 	std::vector<std::string> file_paths = [&library_candidates] {
 		std::vector<std::string> queue;
 		//add all lib*.so and lib*.a files to queue
-		{
-			std::istringstream is(get_output_from_command("locate", {"-ber", "--regextype", "awk", "^lib.*\\.(so|a)$"}));
-			for (std::string line; std::getline(is, line);) {
-				assert(not line.empty());
-				assert(line.front() == '/');
-				if (line == "/usr/lib/gcc/x86_64-linux-gnu/15/libatomic.so") {
-					std::cerr << line << '\n';
-				}
-				queue.push_back(std::move(line));
-			}
-			PROF;
+		std::istringstream is(get_output_from_command("locate", {"-m0bser", "--regextype", "awk", "^lib.*\\.(so|a)$"}));
+		for (std::string line; std::getline(is, line, '\0');) {
+			assert(not line.empty());
+			assert(line.front() == '/');
+			queue.push_back(std::move(line));
 		}
+		PROF;
 		//file_paths.pop_n(queue.size() - 100);
 		library_candidates = queue.size();
-		std::cout << "Collecting symbols from " << library_candidates << " library candidates..." << std::endl;
+		std::cout << "Collecting symbols from " << library_candidates << " library candidates...\n" << std::endl;
 		return queue;
 	}();
 
@@ -48,16 +43,17 @@ void update(int jobs) {
 						   &granularity] {
 		Symbol_database::Writer symbol_map{library_candidates};
 		for (std::size_t lib_index = handled_libs++; lib_index < std::size(file_paths); lib_index = handled_libs++) {
-			if (lib_index * granularity / library_candidates > ((lib_index - 1) * granularity) / library_candidates) {
+			int granularity_local = granularity;
+			if (lib_index * granularity_local / library_candidates > ((lib_index - 1) * granularity_local) / library_candidates) {
 				if (lib_index > 100) {
 					const auto ms_passed =
 						std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - parse_start).count();
 					const auto fraction_complete = lib_index * 1. / library_candidates;
 					const auto expected_runtime_s = ms_passed / fraction_complete / 1000;
 					const int suitable_fraction = std::pow(10, static_cast<int>(1 + std::log(expected_runtime_s) / log(10)));
-					granularity = suitable_fraction;
-					std::print("     \r{:.{}f}% {:.0f}s", (lib_index * granularity / library_candidates) / (granularity / 100.),
-							   std::max<int>(std::log(granularity / 100) - 1, 0), expected_runtime_s - ms_passed / 1000);
+					granularity = granularity_local = suitable_fraction;
+					std::print("\033[F\033[2K\033[G{:.{}f}% {:.0f}s\n", (lib_index * granularity_local / library_candidates) / (granularity_local / 100.),
+							   std::max<int>(std::log(granularity_local / 100) - 1, 0), expected_runtime_s - ms_passed / 1000);
 					std::cout << std::flush;
 				}
 			}
@@ -76,29 +72,30 @@ void update(int jobs) {
 	auto symbol_map = thread_handler();
 
 	PROF;
+	std::cerr << '\n';
 
 	for (auto &thread : threads) {
 		symbol_map.merge(thread.get());
 	}
 
 	//write results to disk
-	std::cout << "100%  \nwriting " << symbol_map.size() << " symbols to " << data_base_filepath << std::endl;
+	std::cout << "\033[F\033[2K\033[G100% 0s\nFound " << symbol_map.size() << " symbols in " << file_paths.size() << " libraries, writing database..."
+			  << std::endl;
 	const auto stats = symbol_map.write(data_base_filepath, std::move(file_paths));
 	auto bytes = [](std::size_t byte_count) {
-		constexpr const char *units[] = {"B", "KB", "MB", "GB", "TB", "PB", "EB"};
-		std::size_t unit = 0;
+		constexpr const char *units[] = {"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB", "RB", "QB"};
+		const char *const *unit = units;
 		double display_bytes = byte_count;
 		while (display_bytes >= 10000) {
 			display_bytes /= 1024;
 			unit++;
 		}
-		return unit == 0 ? std::format("{}{}", display_bytes, **units) : std::format("{:.1f}{}", display_bytes, units[unit]);
+		return unit == units ? std::format("{}{}", display_bytes, *unit) : std::format("{:.1f}{}", display_bytes, *unit);
 	};
 
-	PROF;
-
+	std::cout << "Writing result to " << data_base_filepath << "..." << std::endl;
 	std::cout << "Wrote " << stats.unique_symbols << " unique symbols into " << bytes(stats.symbols_db_size) << " of database with an index of "
 			  << bytes(stats.symbols_index_size) << "\n";
-	std::cout << "Wrote " << stats.unique_libs << " unique libs into " << bytes(stats.libs_db_size) << " of database with an index of "
+	std::cout << "Wrote " << stats.unique_libs << " libraries into " << bytes(stats.libs_db_size) << " of database with an index of "
 			  << bytes(stats.libs_index_size) << "\n";
 }
