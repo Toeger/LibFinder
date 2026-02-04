@@ -26,6 +26,12 @@
  * Offset lib_indexes[libs]; //offsets of lib indexes, contains an extra entry for past symbol_db
  */
 
+template <class T>
+static void leak(T &t) {
+	alignas(alignof(T)) char buffer[sizeof t];
+	new (buffer) T(std::move(t));
+}
+
 constexpr char version[12] = "LibFinderV1";
 using Offset = std::uint32_t;
 
@@ -36,7 +42,7 @@ void Symbol_database::Writer::add(std::string symbol, std::size_t lib_id) {
 Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
 	Symbol_database::Write_stats stats;
 	std::ofstream file{path, std::ios_base::out | std::ios_base::binary};
-	std::map<std::string /*symbol+ids*/, std::string /*libs*/> symbol_db;
+	std::map<std::string /*symbol*/, std::string /*libs*/> symbol_db;
 	for (auto &list : data) {
 		for (auto &[symbol, lib] : list) {
 			symbol_db[symbol].append(std::string_view{reinterpret_cast<const char *>(&lib), lib_index_size});
@@ -105,11 +111,14 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	PROF;
 
+	leak(data);
+	leak(symbol_db);
+
 	return stats;
 }
 
 Symbol_database::Writer::Writer(std::size_t libraries)
-	: lib_index_size{} {
+	: lib_index_size{1} {
 	while (libraries > 255) {
 		libraries /= 256;
 		lib_index_size++;
