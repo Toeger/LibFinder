@@ -5,5 +5,6 @@
 #include <vector>
 
 std::string get_output_from_command(const char *command, std::vector<std::string> argv);
+std::string get_error_from_command(const char *command, std::vector<std::string> argv);
 
 #endif // UTILITY_H

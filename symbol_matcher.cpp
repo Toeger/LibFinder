@@ -110,17 +110,17 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 		std::filesystem::path output_path{directory / output};
 		auto &priorities = path_priorities[output_path];
 		auto &compiler = args[0];
-		auto compiler_output = get_output_from_command(compiler.c_str(), {"-E", "-v", "-"});
-		//std::println(stderr, "Output: {}", compiler_output);
+		auto compiler_output = get_error_from_command(("echo | " + compiler).c_str(), {"-E", "-v", "-"});
 
-		//views | std::ranges::views::filter([](std::string_view line) { return line.starts_with("LIBRARY_PATH="); });
-		for (auto lib : compiler_output | std::ranges::views::split('\n') | std::ranges::views::filter([](auto line) {
-							return std::string_view{line}.starts_with("LIBRARY_PATH=");
-						}) | std::ranges::views::take(1) //| std::ranges::views::split(':')
-		) {
-			std::cerr << std::string_view{lib} << '\n';
+		constexpr auto &lib_prefix = "LIBRARY_PATH=";
+		for (auto libs : compiler_output | std::ranges::views::split('\n') |
+							 std::ranges::views::filter([](auto line) { return std::string_view{line}.starts_with(lib_prefix); })) {
+			std::string_view libs_view{libs};
+			libs_view.remove_prefix(sizeof(lib_prefix) - 1);
+			for (auto lib : libs_view | std::ranges::views::split(':')) {
+				priorities.push_back(std::string_view{lib});
+			}
 		}
-		priorities.push_back({});
 	}
 }
 
@@ -225,6 +225,7 @@ std::string Symbol_matcher::resolve_to_command() {
 	std::string result;
 	return result;
 }
+
 bool Symbol_matcher::is_resolved() const {
 	return undefined.empty();
 }

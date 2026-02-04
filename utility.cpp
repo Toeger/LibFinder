@@ -94,20 +94,14 @@ std::string get_output_from_command(const char *command, std::vector<std::string
 #include "utility.h"
 
 #include <memory>
-#include <mutex>
 
-static std::mutex popen_mutex;
-
-std::string get_output_from_command(const char *command, std::vector<std::string> argv) {
+static std::string get_output(const char *command, std::vector<std::string> argv, std::string postfix) {
 	std::string com = command;
 	for (auto &arg : argv) {
-		com += " \"" + arg + "\" 2>/dev/null";
+		com += " \"" + arg + "\"";
 	}
-	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{nullptr};
-	{
-		std::lock_guard<std::mutex> popen_lock(popen_mutex); //unfortunately popen doesn't seem to be thread safe
-		fp.reset(popen(com.data(), "r"));
-	}
+	com += " " + postfix;
+	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{popen(com.data(), "r")};
 	if (!fp) {
 		return {};
 	}
@@ -123,4 +117,13 @@ std::string get_output_from_command(const char *command, std::vector<std::string
 	}
 	return buffer;
 }
+
+std::string get_output_from_command(const char *command, std::vector<std::string> argv) {
+	return get_output(command, argv, "2>/dev/null");
+}
+
+std::string get_error_from_command(const char *command, std::vector<std::string> argv) {
+	return get_output(command, argv, "2>&1 1>/dev/null");
+}
+
 #endif

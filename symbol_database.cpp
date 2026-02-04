@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <string>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -28,7 +29,7 @@
 
 template <class T>
 static void leak(T &t) {
-	alignas(alignof(T)) char buffer[sizeof t];
+	alignas(T) char buffer[sizeof t];
 	new (buffer) T(std::move(t));
 }
 
