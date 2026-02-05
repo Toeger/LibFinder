@@ -36,9 +36,12 @@ std::vector<Symbol> parse_lib(std::filesystem::path path) {
 		}
 		if (auto pos = line.rfind(' '); pos != line.npos) {
 			line.remove_prefix(pos + 1);
+			if (line.contains('.')) {
+				continue;
+			}
 			result.push_back(Symbol{.type = type, .name = std::string{line}});
 		} else {
-			parse_fail(std::format("Failed parsing line for {}:\n{}\nSpace expected", path.string(), line));
+			parse_fail(std::format("Failed parsing line for {}:\n{}\nSpace expected", path.c_str(), line));
 			continue;
 		}
 	}

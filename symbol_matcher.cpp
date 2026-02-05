@@ -27,8 +27,7 @@ void Symbol_matcher::add(Symbol symbol, std::filesystem::path origin) {
 			}
 			if (auto it = defined.find(symbol.name); it != std::end(defined)) {
 				if (it->second.type != Symbol_type::defined_weak) {
-					throw std::runtime_error{std::format("Error: Duplicate symbol definition for {}\nDefined in {} and {}", symbol.demangled_name(),
-														 origin.string(), origins[it->second.origin_index].string())};
+					throw Duplicate_symbol_error{{.symbol = symbol, .lib1 = origin, .lib2 = origins[it->second.origin_index].c_str()}};
 				}
 			} else {
 				defined[symbol.name] = {symbol.type, origin_index(origin)};
@@ -46,7 +45,7 @@ void Symbol_matcher::add(Symbol symbol, std::filesystem::path origin) {
 void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path) {
 	std::ifstream compile_commands{file_path};
 	if (not compile_commands) {
-		throw std::runtime_error{std::format("Failed opening file {}", file_path.string())};
+		throw std::runtime_error{std::format("Failed opening file {}", file_path.c_str())};
 	}
 	for (auto &obj : nlohmann::json::parse(compile_commands)) {
 		std::filesystem::path directory{obj["directory"]};
@@ -127,7 +126,7 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 	}
 }
 
-void Symbol_matcher::add_lib(std::string lib) {
+void Symbol_matcher::add_lib(std::filesystem::path lib) {
 	auto file_type = get_output_from_command("file", {lib});
 	if (file_type.contains("symbolic link")) {
 		auto target = get_output_from_command("readlink", {"-f", lib});
@@ -136,7 +135,7 @@ void Symbol_matcher::add_lib(std::string lib) {
 	}
 	bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
 	if (not is_shared_object and not file_type.contains("current ar archive")) {
-		throw std::runtime_error{std::format("{} is not accessible", lib)};
+		throw std::runtime_error{std::format("{} is not accessible", lib.c_str())};
 	}
 
 	for (auto &symbol : parse_lib(lib)) {
@@ -205,7 +204,7 @@ std::string Symbol_matcher::resolve_to_command() {
 			}
 		}
 		if (libs.empty()) {
-			throw Unresolved_result{{.symbol = symbol, .origin = origins[type_origin.origin_index]}};
+			throw Unresolved_result{{.symbol = {.type = Symbol_type::undefined, .name = symbol}, .origin = origins[type_origin.origin_index]}};
 		}
 		if (libs.size() == 1) {
 			add_lib(std::string{libs[0]}); //invalidates current iterator

@@ -148,7 +148,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	close(file);
 	const std::uint8_t *cur = data;
 	if (std::memcmp(data, version, sizeof(version))) {
-		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.string())};
+		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
 	}
 	cur += sizeof(version);
 	lib_index_size = *cur++;

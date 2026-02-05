@@ -28,7 +28,7 @@ static void handle_linkcommand(std::span<std::filesystem::path> files) {
 	for (auto &file : files) {
 		file = std::filesystem::current_path() / file;
 		if (not std::filesystem::exists(file)) {
-			throw std::runtime_error{std::format("Error: file not found: {}", file.string())};
+			throw std::runtime_error{std::format("Error: file not found: {}", file.c_str())};
 		}
 	}
 
