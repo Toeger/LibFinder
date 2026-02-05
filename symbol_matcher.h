@@ -6,14 +6,14 @@
 #include <stdexcept>
 
 struct Symbol_matcher {
-	Symbol_matcher(std::string_view data_base);
+	Symbol_matcher(std::filesystem::path data_base);
 
 	struct Type_and_origin_index {
 		Symbol_type type;
 		std::size_t origin_index;
 	};
 
-	void add(Symbol symbol, std::string_view origin);
+	void add(Symbol symbol, std::filesystem::path origin);
 
 	struct Unresolved_result : std::runtime_error {
 		struct Unresolved_result_aggregate {
@@ -52,10 +52,10 @@ struct Symbol_matcher {
 
 	bool is_resolved() const;
 
-	std::size_t origin_index(std::string_view origin);
+	std::size_t origin_index(std::filesystem::path origin);
 
 	std::map<std::string /*symbol*/, Type_and_origin_index> defined, undefined;
-	std::vector<std::string /*paths*/> origins;
+	std::vector<std::filesystem::path /*libs*/> origins;
 	Symbol_database::Reader db;
 	std::map<std::filesystem::path /*input file*/, std::vector<std::filesystem::path> /*priorities*/> path_priorities;
 };

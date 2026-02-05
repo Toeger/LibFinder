@@ -262,7 +262,7 @@ Symbol_database::Reader::Symbol_db_iterator Symbol_database::Reader::end() const
 	return {.index = symbols, .reader = this};
 }
 
-std::vector<std::string_view /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string_view symbol) const {
+std::vector<std::filesystem::path /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string_view symbol) const {
 	auto it = std::lower_bound(begin(), end(), symbol);
 	if (it == end() or *it != symbol) {
 		return {};
@@ -270,7 +270,7 @@ std::vector<std::string_view /*lib*/> Symbol_database::Reader::libraries_from_sy
 	return std::move(get_libraries(it, it + 1).begin()->second);
 }
 
-std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/>
+std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/>
 Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
 	assert(([&] {
 		auto first_non_sorted = std::is_sorted_until(begin(), end());
@@ -303,9 +303,8 @@ std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {
 	return {reinterpret_cast<const char *>(data + offset), sizeof(Offset)};
 }
 
-std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> Symbol_database::Reader::get_libraries(Symbol_db_iterator begin,
-																															 Symbol_db_iterator end) const {
-	std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> result;
+std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::Reader::get_libraries(Symbol_db_iterator begin, Symbol_db_iterator end) const {
+	std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> result;
 	while (begin < end) {
 		auto &found_libs = result[*begin];
 		const std::uint8_t *cur = data + begin.offset();

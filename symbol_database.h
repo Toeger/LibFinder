@@ -33,14 +33,14 @@ namespace Symbol_database {
 		~Reader();
 		Reader(Reader &&other);
 		Reader &operator=(Reader &&other);
-		std::vector<std::string_view /*lib*/> libraries_from_symbol(std::string_view symbol) const;
-		std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> libraries_from_prefix(std::string_view symbol_prefixes) const;
+		std::vector<std::filesystem::path> libraries_from_symbol(std::string_view symbol) const;
+		std::map<std::string_view, std::vector<std::filesystem::path>> libraries_from_prefix(std::string_view symbol_prefixes) const;
 
 		private:
 		struct Symbol_db_iterator;
 		std::string_view get_symbol(std::size_t index);
-		std::map<std::string_view /*symbol*/, std::vector<std::string_view /*lib*/> /*libs*/> get_libraries(Symbol_db_iterator begin,
-																											Symbol_db_iterator end) const;
+		std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> get_libraries(Symbol_db_iterator begin,
+																												 Symbol_db_iterator end) const;
 		Symbol_db_iterator begin() const;
 		Symbol_db_iterator end() const;
 

@@ -4,15 +4,16 @@
 
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <print>
 #include <ranges>
 
-Symbol_matcher::Symbol_matcher(std::string_view data_base)
+Symbol_matcher::Symbol_matcher(std::filesystem::path data_base)
 	: db{data_base} {}
 
-void Symbol_matcher::add(Symbol symbol, std::string_view origin) {
+void Symbol_matcher::add(Symbol symbol, std::filesystem::path origin) {
 	switch (symbol.type) {
 		case Symbol_type::undefined:
 			if (defined.contains(symbol.name)) {
@@ -26,8 +27,8 @@ void Symbol_matcher::add(Symbol symbol, std::string_view origin) {
 			}
 			if (auto it = defined.find(symbol.name); it != std::end(defined)) {
 				if (it->second.type != Symbol_type::defined_weak) {
-					throw std::runtime_error{std::format("Error: Duplicate symbol definition for {}\nDefined in {} and {}", symbol.demangled_name(), origin,
-														 origins[it->second.origin_index])};
+					throw std::runtime_error{std::format("Error: Duplicate symbol definition for {}\nDefined in {} and {}", symbol.demangled_name(),
+														 origin.string(), origins[it->second.origin_index].string())};
 				}
 			} else {
 				defined[symbol.name] = {symbol.type, origin_index(origin)};
@@ -113,14 +114,16 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 		auto compiler_output = get_error_from_command(("echo | " + compiler).c_str(), {"-E", "-v", "-"});
 
 		constexpr auto &lib_prefix = "LIBRARY_PATH=";
-		for (auto libs : compiler_output | std::ranges::views::split('\n') |
-							 std::ranges::views::filter([](auto line) { return std::string_view{line}.starts_with(lib_prefix); })) {
-			std::string_view libs_view{libs};
-			libs_view.remove_prefix(sizeof(lib_prefix) - 1);
-			for (auto lib : libs_view | std::ranges::views::split(':')) {
-				priorities.push_back(std::string_view{lib});
-			}
+		auto lib_line_range =
+			compiler_output | std::views::split('\n') | std::views::filter([](auto line) { return std::string_view{line}.starts_with(lib_prefix); });
+		auto lib_line_it = std::ranges::begin(lib_line_range);
+		if (lib_line_it == std::ranges::end(lib_line_range)) {
+			continue;
 		}
+		std::string_view libs_sv{*lib_line_it};
+		libs_sv.remove_prefix(sizeof(lib_prefix) - 1);
+		priorities = libs_sv | std::views::split(':') | std::views::transform([](auto r) { return std::filesystem::path{r.begin(), r.end()}; }) |
+					 std::ranges::to<std::vector>();
 	}
 }
 
@@ -163,7 +166,7 @@ void Symbol_matcher::add_lib(std::string lib) {
 	}
 }
 
-std::size_t Symbol_matcher::origin_index(std::string_view origin) {
+std::size_t Symbol_matcher::origin_index(std::filesystem::path origin) {
 	auto pos = std::ranges::find(origins, origin);
 	std::size_t index = pos - std::begin(origins);
 	if (index == std::size(origins)) {
@@ -173,11 +176,34 @@ std::size_t Symbol_matcher::origin_index(std::string_view origin) {
 }
 
 std::string Symbol_matcher::resolve_to_command() {
-	std::vector<std::string> libraries;
 	for (auto it = std::begin(undefined); it != std::end(undefined);) {
 		auto &[symbol, type_origin] = *it;
 		auto libs = db.libraries_from_symbol(symbol);
-		libs.erase(std::remove_if(std::begin(libs), std::end(libs), [](std::string_view sv) { return sv.starts_with("/snap"); }), std::end(libs));
+		//libs.erase(std::remove_if(std::begin(libs), std::end(libs), [](std::string_view sv) { return sv.starts_with("/snap"); }), std::end(libs));
+		{
+			std::multimap<std::ptrdiff_t /*priority*/, std::filesystem::path /*library*/> priorities;
+			for (const auto &lib : libs) {
+				auto lib_path = lib;
+				lib_path.remove_filename();
+				if (auto path_priorities_it = path_priorities.find(origins[type_origin.origin_index]); path_priorities_it != std::end(path_priorities)) {
+					auto &priority_paths = path_priorities_it->second;
+					std::ptrdiff_t priority = std::ranges::find(priority_paths, lib_path) - std::begin(priority_paths);
+					priorities.insert({priority, lib});
+				} else {
+					std::println(stderr, "Warning: {} was not mentioned in the compile_commands.json", origins[type_origin.origin_index].c_str());
+					std::println(stderr, "List of files:");
+					for (auto &[f, _] : path_priorities) {
+						std::println(stderr, "{}", f.c_str());
+					}
+				}
+			}
+
+			if (not priorities.empty()) {
+				auto lowest_priority = std::begin(priorities)->first;
+				auto range = priorities.equal_range(lowest_priority);
+				libs.assign_range(std::ranges::subrange(range.first, range.second) | std::views::values);
+			}
+		}
 		if (libs.empty()) {
 			throw Unresolved_result{{.symbol = symbol, .origin = origins[type_origin.origin_index]}};
 		}
@@ -186,10 +212,27 @@ std::string Symbol_matcher::resolve_to_command() {
 			it = std::begin(undefined);
 			continue;
 		}
+		std::cout << "Yo" << std::endl;
+
+#if 0
+		//auto &origin = origins[type_origin.origin_index];
+		for (auto &file : files) {
+			if (auto path_it = path_priorities.find(file); path_it != std::end(path_priorities)) {
+				auto &priorities = path_it->second;
+				auto min_it =
+					std::min_element(std::begin(files), std::end(files), [&priorities](const std::filesystem::path &lhs, const std::filesystem::path &rhs) {
+						return std::find(std::begin(priorities), std::end(priorities), lhs) - std::begin(priorities) <
+							   std::find(std::begin(priorities), std::end(priorities), rhs) - std::begin(priorities);
+					});
+				if (auto pf_it = std::ranges::find(priorities, file); pf_it != std::end(priorities)) {
+				}
+			}
+		}
+#endif
 		++it; //ignore ambiguous options for now
 	}
 
-	std::vector<std::vector<std::string_view>> lib_sets;
+	std::vector<std::vector<std::filesystem::path>> lib_sets;
 	for (auto &[symbol, type_origin] : undefined) {
 		if (type_origin.type == Symbol_type::undefined) {
 			auto libs = db.libraries_from_symbol(symbol);
@@ -213,14 +256,14 @@ std::string Symbol_matcher::resolve_to_command() {
 		}
 		i++;
 	}
-	std::cout << "Lib combos:\n";
-	for (auto &lib_set : lib_sets) {
-		std::cout << '[';
-		for (char c : std::ranges::join_with_view(lib_set, std::string_view{", "})) {
-			std::cout << c;
-		}
-		std::cout << "]\n";
-	}
+	//std::cout << "Lib combos:\n";
+	//for (auto &lib_set : lib_sets) {
+	//	std::cout << "[\n\t";
+	//	for (char c : std::ranges::join_with_view(lib_set, std::string_view{"\n\t"})) {
+	//		std::cout << c;
+	//	}
+	//	std::cout << "\n]\n";
+	//}
 
 	std::string result;
 	return result;

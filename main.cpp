@@ -24,9 +24,16 @@ const std::string data_base_path = [] {
 //TODO: find a way to share the files between users
 const std::string data_base_filepath = data_base_path + "/database";
 
-static void handle_linkcommand(std::span<std::string_view> files) {
+static void handle_linkcommand(std::span<std::filesystem::path> files) {
+	for (auto &file : files) {
+		file = std::filesystem::current_path() / file;
+		if (not std::filesystem::exists(file)) {
+			throw std::runtime_error{std::format("Error: file not found: {}", file.string())};
+		}
+	}
+
 	Symbol_matcher symbol_matcher{data_base_filepath};
-	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/Prop/build/test/compile_commands.json");
+	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/Prop/build/compile_commands.json");
 	for (auto &file : files) {
 		for (auto &symbol : parse_lib(file)) {
 			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
@@ -98,7 +105,7 @@ int main(int argc, char *argv[]) try {
 		return 0; //avoid double newline at end of output
 	}
 	if (program_args.count("linkcommand")) {
-		std::vector<std::string_view> files;
+		std::vector<std::filesystem::path> files;
 		files.resize(argc - 2);
 		for (int i = 2; i < argc; i++) {
 			files[i - 2] = argv[i];

@@ -1,7 +1,7 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
-#include <string_view>
 #include <vector>
 
 enum class Symbol_type : char {
@@ -17,4 +17,4 @@ struct Symbol {
 	static std::string demangled_name(std::string name);
 };
 
-std::vector<Symbol> parse_lib(std::string_view path);
+std::vector<Symbol> parse_lib(std::filesystem::path path);

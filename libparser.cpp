@@ -1,11 +1,12 @@
 #include "libparser.h"
 #include "utility.h"
 
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <ranges>
 
-std::vector<Symbol> parse_lib(std::string_view path) {
+std::vector<Symbol> parse_lib(std::filesystem::path path) {
 	auto parse_fail = [](std::string_view message) {
 		std::cerr << message << '\n';
 		exit(-1);
@@ -37,7 +38,7 @@ std::vector<Symbol> parse_lib(std::string_view path) {
 			line.remove_prefix(pos + 1);
 			result.push_back(Symbol{.type = type, .name = std::string{line}});
 		} else {
-			parse_fail(std::format("Failed parsing line for {}:\n{}\nSpace expected", path, line));
+			parse_fail(std::format("Failed parsing line for {}:\n{}\nSpace expected", path.string(), line));
 			continue;
 		}
 	}
