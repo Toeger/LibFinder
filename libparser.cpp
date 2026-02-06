@@ -6,6 +6,16 @@
 #include <iostream>
 #include <ranges>
 
+static std::string_view &skip_past(std::string_view &sv, char c) {
+	const auto pos = sv.find(c);
+	if (pos == sv.npos) {
+		sv = "";
+	} else {
+		sv.remove_prefix(pos + 1);
+	}
+	return sv;
+}
+
 std::vector<Symbol> parse_lib(std::filesystem::path path) {
 	auto parse_fail = [](std::string_view message) {
 		std::cerr << message << '\n';
@@ -21,18 +31,28 @@ std::vector<Symbol> parse_lib(std::filesystem::path path) {
 		if (line.front() < '0' or line.front() > '9') {
 			continue;
 		}
+		std::string_view flags = {skip_past(line, ' ').begin(), 7};
+		line.remove_prefix(8);
+		switch (flags[0]) {
+			case 'l': //local
+				continue;
+			case 'g': //global
+				break;
+			case 'u': //unique global
+				break;
+			case '!': //local and global
+				break;
+			case ' ': //undefined
+				break;
+		}
 		Symbol_type type;
-		if (line.contains(" *UND*\t")) {
-			type = Symbol_type::undefined;
-		} else if (line.contains(" .text\t") or line.contains(" .data") or line.contains(" .bss\t") or line.contains(" .rodata\t") or
-				   line.contains(" .tdata\t") or line.contains(" .fini_array\t") or line.contains(" .tbss\t")) {
-			type = Symbol_type::defined;
-			//} else if (line.contains(" .init\t") or line.contains(" *ABS*\t") or line.contains(" .fini\t") or
-			//		   line.contains(" .got.plt\t")) { //TODO: Find out what these mean
-			//	continue;
-		} else {
-			//parse_fail(std::format("Failed parsing line for {}:\n{}\n*UND* or .text or .init expected", path, line));
+		if (line.contains(" .hidden ")) {
 			continue;
+		}
+		if (line.starts_with("*UND*\t")) {
+			type = Symbol_type::undefined;
+		} else {
+			type = flags[1] == 'w' ? Symbol_type::defined_weak : Symbol_type::defined;
 		}
 		if (auto pos = line.rfind(' '); pos != line.npos) {
 			line.remove_prefix(pos + 1);

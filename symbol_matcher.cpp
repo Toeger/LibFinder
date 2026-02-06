@@ -127,17 +127,6 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 }
 
 void Symbol_matcher::add_lib(std::filesystem::path lib) {
-	auto file_type = get_output_from_command("file", {lib});
-	if (file_type.contains("symbolic link")) {
-		auto target = get_output_from_command("readlink", {"-f", lib});
-		target.pop_back();
-		file_type = get_output_from_command("file", {target});
-	}
-	bool is_shared_object = file_type.contains("ELF 64-bit LSB shared object");
-	if (not is_shared_object and not file_type.contains("current ar archive")) {
-		throw std::runtime_error{std::format("{} is not accessible", lib.c_str())};
-	}
-
 	for (auto &symbol : parse_lib(lib)) {
 		switch (symbol.type) {
 			case Symbol_type::defined:
@@ -211,7 +200,6 @@ std::string Symbol_matcher::resolve_to_command() {
 			it = std::begin(undefined);
 			continue;
 		}
-		std::cout << "Yo" << std::endl;
 
 #if 0
 		//auto &origin = origins[type_origin.origin_index];
