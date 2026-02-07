@@ -127,7 +127,7 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 }
 
 void Symbol_matcher::add_lib(std::filesystem::path lib) {
-	for (auto &symbol : parse_lib(lib)) {
+	for (auto &symbol : parse_lib(lib, true)) {
 		switch (symbol.type) {
 			case Symbol_type::defined:
 				undefined.erase(symbol.name);

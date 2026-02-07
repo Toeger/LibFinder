@@ -17,4 +17,4 @@ struct Symbol {
 	static std::string demangled_name(std::string name);
 };
 
-std::vector<Symbol> parse_lib(std::filesystem::path path);
+std::vector<Symbol> parse_lib(std::filesystem::path path, bool include_undefined);

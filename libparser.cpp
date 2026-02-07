@@ -16,7 +16,7 @@ static std::string_view &skip_past(std::string_view &sv, char c) {
 	return sv;
 }
 
-std::vector<Symbol> parse_lib(std::filesystem::path path) {
+std::vector<Symbol> parse_lib(std::filesystem::path path, bool include_undefined) {
 	auto parse_fail = [](std::string_view message) {
 		std::cerr << message << '\n';
 		exit(-1);
@@ -43,6 +43,9 @@ std::vector<Symbol> parse_lib(std::filesystem::path path) {
 			case '!': //local and global
 				break;
 			case ' ': //undefined
+				if (not include_undefined) {
+					continue;
+				}
 				break;
 		}
 		Symbol_type type;
@@ -50,6 +53,9 @@ std::vector<Symbol> parse_lib(std::filesystem::path path) {
 			continue;
 		}
 		if (line.starts_with("*UND*\t")) {
+			if (not include_undefined) {
+				continue;
+			}
 			type = Symbol_type::undefined;
 		} else {
 			type = flags[1] == 'w' ? Symbol_type::defined_weak : Symbol_type::defined;

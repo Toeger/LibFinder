@@ -50,7 +50,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 		}
 	}
 
-	PROF;
+	PROF << "to sort through symbols";
 
 	stats.unique_symbols = symbol_db.size();
 	stats.unique_libs = libraries.size();
@@ -110,7 +110,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	file.write(reinterpret_cast<const char *>(&symbol_indexes_start), sizeof(Offset));
 	file.write(reinterpret_cast<const char *>(&lib_indexes_start), sizeof(Offset));
 
-	PROF;
+	PROF << "to write results to disk";
 
 	leak(data);
 	leak(symbol_db);

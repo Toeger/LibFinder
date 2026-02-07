@@ -14,7 +14,8 @@ SOURCES += main.cpp \
     libparser.cpp \
     symbol_matcher.cpp \
     raii.cpp \
-    profile.cpp
+    profile.cpp \
+    format.cpp
 
 HEADERS += \
     thread_safe_queue.h \
@@ -28,7 +29,8 @@ HEADERS += \
     external/nlohmann/json.hpp \
     symbol_matcher.h \
     raii.h \
-    profile.h
+    profile.h \
+    format.h
 
 LIBS += -lpthread
 LIBS += -lboost_system
