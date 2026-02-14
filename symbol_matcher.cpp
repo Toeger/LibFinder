@@ -127,7 +127,7 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 }
 
 void Symbol_matcher::add_lib(std::filesystem::path lib) {
-	for (auto &symbol : parse_lib(lib, true)) {
+	for (auto &symbol : parse_lib(lib, true, {})) { //TODO: Pass proper library dirs
 		switch (symbol.type) {
 			case Symbol_type::defined:
 				undefined.erase(symbol.name);
@@ -164,6 +164,10 @@ std::size_t Symbol_matcher::origin_index(std::filesystem::path origin) {
 }
 
 std::string Symbol_matcher::resolve_to_command() {
+	/* TODO
+	 * Implement proper rules to resolve library candidates
+	 * Deduplicate based on content
+	 */
 	for (auto it = std::begin(undefined); it != std::end(undefined);) {
 		auto &[symbol, type_origin] = *it;
 		auto libs = db.libraries_from_symbol(symbol);

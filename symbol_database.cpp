@@ -25,6 +25,12 @@
  * Offset symbol_indexes[symbols]; //offsets of symbols indexes
  * char lib_db[][lib_index_size]; //lib entries of variable size, indexed by lib_indexes
  * Offset lib_indexes[libs]; //offsets of lib indexes, contains an extra entry for past symbol_db
+ *
+ * TODO: System status
+ * Verify that it's a dpkg system:
+ *	dpkg --robot --version
+ * Get system status:
+ *	ls -l /var/log/dpkg* | md5sum
  */
 
 template <class T>
@@ -53,7 +59,6 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	PROF << "to sort through symbols";
 
 	stats.unique_symbols = symbol_db.size();
-	stats.unique_libs = libraries.size();
 
 	file.write(version, sizeof(version));
 	file << lib_index_size;

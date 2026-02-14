@@ -35,7 +35,7 @@ static void handle_linkcommand(std::span<std::filesystem::path> files) {
 	Symbol_matcher symbol_matcher{data_base_filepath};
 	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/Prop/build/compile_commands.json");
 	for (auto &file : files) {
-		for (auto &symbol : parse_lib(file, true)) {
+		for (auto &symbol : parse_lib(file, true, {})) { //TODO: Pass proper library dirs
 			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
 				symbol_matcher.add(symbol, file);
 			}
@@ -74,9 +74,9 @@ int main(int argc, char *argv[]) try {
 	}
 	boost::program_options::notify(program_args);
 	if (program_args.count("print")) {
-		const auto output = get_output_from_command("/usr/bin/c++", {"-E", "-v", "-"});
-		//const auto output = get_output_from_command("ls", {"-lisah"});
-		std::println("Out: {}", output);
+		for (auto &symbol : parse_lib("/usr/lib/x86_64-linux-gnu/libc.so", false, {})) {
+			std::cout << symbol.name << '\n';
+		}
 		return 0;
 	}
 	if (program_args.count("help")) {

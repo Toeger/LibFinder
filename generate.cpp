@@ -20,6 +20,7 @@
 void update(int jobs) {
 	std::cout << "Collecting library candidates...\r" << std::flush;
 	std::atomic<std::size_t> handled_libs{0};
+	std::atomic<std::size_t> skipped_libs{0};
 	std::size_t library_candidates;
 	std::vector<std::string> file_paths = [&library_candidates] {
 		std::vector<std::string> queue;
@@ -43,7 +44,7 @@ void update(int jobs) {
 	//function for each thread to execute, which takes a chunk of paths to scan from the queue and scans them until the queue is empty
 	std::atomic<int> granularity = 1000;
 	auto thread_handler = [&file_paths = std::as_const(file_paths), &handled_libs, library_candidates = std::as_const(library_candidates), &parse_start,
-						   &granularity] {
+						   &granularity, &skipped_libs] {
 		Symbol_database::Writer symbol_map{library_candidates};
 		for (std::size_t lib_index = handled_libs++; lib_index < std::size(file_paths); lib_index = handled_libs++) {
 			int granularity_local = granularity;
@@ -57,7 +58,12 @@ void update(int jobs) {
 						   std::max<int>(std::log(granularity_local / 100) - 1, 0), expected_runtime_s - ms_passed / 1000);
 				std::cout << std::flush;
 			}
-			for (auto &symbol : parse_lib(file_paths[lib_index], false)) {
+			auto libs = parse_lib(file_paths[lib_index], false, {}); //TODO: Pass proper library dirs
+			if (libs.empty()) {
+				++skipped_libs;
+				continue;
+			}
+			for (auto &symbol : libs) {
 				symbol_map.add(std::move(symbol.name), lib_index);
 			}
 		}
@@ -76,13 +82,13 @@ void update(int jobs) {
 	}
 
 	//write results to disk
-	std::cout << "\033[F\033[2K\033[G100% 0s\nFound " << number(symbol_map.size()) << " symbols in " << number(file_paths.size())
+	std::cout << "\033[F\033[2K\033[GFound " << number(symbol_map.size()) << " symbols in " << number(handled_libs - skipped_libs)
 			  << " libraries, writing database..." << std::endl;
 	const auto stats = symbol_map.write(data_base_filepath, std::move(file_paths));
 
 	std::cout << "Writing result to " << data_base_filepath << "..." << std::endl;
 	std::cout << "Wrote " << number(stats.unique_symbols) << " unique symbols into " << bytes(stats.symbols_db_size) << " of database with an index of "
 			  << bytes(stats.symbols_index_size) << "\n";
-	std::cout << "Wrote " << number(stats.unique_libs) << " libraries into " << bytes(stats.libs_db_size) << " of database with an index of "
+	std::cout << "Wrote " << number(handled_libs - skipped_libs) << " libraries into " << bytes(stats.libs_db_size) << " of database with an index of "
 			  << bytes(stats.libs_index_size) << "\n";
 }

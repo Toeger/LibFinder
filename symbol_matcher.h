@@ -21,9 +21,17 @@ struct Symbol_matcher {
 			std::filesystem::path origin;
 		};
 		Unresolved_result(Unresolved_result_aggregate unresolved)
-			: std::runtime_error{std::format("Error: Unresolved symbol {} required by {}", unresolved.symbol.demangled_name(), unresolved.origin.c_str())}
+			: std::runtime_error{std::format("Error: Unresolved symbol {}({}) required by {}", unresolved.symbol.demangled_name(), unresolved.symbol.name,
+											 unresolved.origin.c_str())}
 			, symbol{std::move(unresolved.symbol)}
 			, origin{std::move(unresolved.origin)} {}
+
+		std::string resolve_origin(const Symbol &symbol, const std::filesystem::path &origin) {
+			std::string_view sv{origin.c_str()};
+			if (sv.ends_with(".o")) {
+			}
+			return symbol.name;
+		}
 
 		Symbol symbol;
 		std::filesystem::path origin;

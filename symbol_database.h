@@ -8,7 +8,6 @@
 
 namespace Symbol_database {
 	struct Write_stats {
-		std::size_t unique_libs;
 		std::size_t unique_symbols;
 		std::size_t symbols_db_size;
 		std::size_t libs_db_size;
