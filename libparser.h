@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 enum class Symbol_type : char {
@@ -18,3 +19,5 @@ struct Symbol {
 };
 
 std::vector<Symbol> parse_lib(std::filesystem::path path, bool include_undefined, const std::vector<std::filesystem::path> &search_dirs);
+
+std::vector<std::filesystem::path> gcc_lib_paths(std::string_view compiler = "gcc");

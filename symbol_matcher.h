@@ -57,7 +57,7 @@ struct Symbol_matcher {
 
 	std::string resolve_to_command();
 
-	void add_lib(std::filesystem::path lib);
+	void add_lib(std::filesystem::path lib, const std::vector<std::filesystem::path> &lib_paths);
 
 	bool is_resolved() const;
 

@@ -43,8 +43,9 @@ void update(int jobs) {
 	const auto parse_start = std::chrono::high_resolution_clock::now();
 	//function for each thread to execute, which takes a chunk of paths to scan from the queue and scans them until the queue is empty
 	std::atomic<int> granularity = 1000;
+	const auto &lib_paths = gcc_lib_paths();
 	auto thread_handler = [&file_paths = std::as_const(file_paths), &handled_libs, library_candidates = std::as_const(library_candidates), &parse_start,
-						   &granularity, &skipped_libs] {
+						   &granularity, &skipped_libs, &lib_paths] {
 		Symbol_database::Writer symbol_map{library_candidates};
 		for (std::size_t lib_index = handled_libs++; lib_index < std::size(file_paths); lib_index = handled_libs++) {
 			int granularity_local = granularity;
@@ -58,7 +59,7 @@ void update(int jobs) {
 						   std::max<int>(std::log(granularity_local / 100) - 1, 0), expected_runtime_s - ms_passed / 1000);
 				std::cout << std::flush;
 			}
-			auto libs = parse_lib(file_paths[lib_index], false, {}); //TODO: Pass proper library dirs
+			auto libs = parse_lib(file_paths[lib_index], false, lib_paths);
 			if (libs.empty()) {
 				++skipped_libs;
 				continue;

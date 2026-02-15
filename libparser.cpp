@@ -1,6 +1,7 @@
 #include "libparser.h"
 #include "utility.h"
 
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <format>
@@ -9,6 +10,7 @@
 #include <print>
 #include <ranges>
 #include <regex>
+#include <set>
 
 static std::string_view &skip_past(std::string_view &sv, char c) {
 	const auto pos = sv.find(c);
@@ -22,6 +24,35 @@ static std::string_view &skip_past(std::string_view &sv, char c) {
 
 static void parse_lib(std::vector<Symbol> &symbol_list, std::filesystem::path path, bool include_undefined,
 					  const std::vector<std::filesystem::path> &search_dirs);
+
+std::vector<std::filesystem::path> gcc_lib_paths(std::string_view compiler) {
+	const auto compiler_output = get_error_from_command(("echo | " + std::string{compiler}).c_str(), {"-E", "-v", "-"});
+	constexpr auto &search_start = "\nLIBRARY_PATH=";
+	std::string_view lib_paths{compiler_output};
+	const auto start_pos = compiler_output.rfind(search_start);
+	if (start_pos == std::string::npos) { //TODO: look for other compilers and guesses
+		lib_paths = "/usr/lib/\n";
+	} else {
+		lib_paths.remove_prefix(start_pos + std::size(search_start) - 1);
+	}
+
+	if (auto end_pos = lib_paths.find('\n'); end_pos != std::string_view::npos) {
+		lib_paths.remove_suffix(std::size(lib_paths) - end_pos);
+	}
+
+	std::vector<std::filesystem::path> result;
+	std::set<std::filesystem::path> duplicates;
+	for (auto lib_path : lib_paths | std::ranges::views::split(':')) {
+		std::filesystem::path path{std::begin(lib_path), std::end(lib_path)};
+		if (std::filesystem::exists(path)) {
+			auto canonical_path = std::filesystem::canonical(path);
+			if (duplicates.insert(canonical_path).second) {
+				result.push_back(std::move(canonical_path));
+			}
+		}
+	}
+	return result;
+}
 
 void for_each_path(std::string_view file, const std::filesystem::path &path1, const std::vector<std::filesystem::path> &paths, auto &&function) {
 	auto p = path1;

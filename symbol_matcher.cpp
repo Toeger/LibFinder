@@ -108,26 +108,12 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 			throw std::runtime_error{"Empty command"};
 		}
 		std::filesystem::path output_path{directory / output};
-		auto &priorities = path_priorities[output_path];
-		auto &compiler = args[0];
-		auto compiler_output = get_error_from_command(("echo | " + compiler).c_str(), {"-E", "-v", "-"});
-
-		constexpr auto &lib_prefix = "LIBRARY_PATH=";
-		auto lib_line_range =
-			compiler_output | std::views::split('\n') | std::views::filter([](auto line) { return std::string_view{line}.starts_with(lib_prefix); });
-		auto lib_line_it = std::ranges::begin(lib_line_range);
-		if (lib_line_it == std::ranges::end(lib_line_range)) {
-			continue;
-		}
-		std::string_view libs_sv{*lib_line_it};
-		libs_sv.remove_prefix(sizeof(lib_prefix) - 1);
-		priorities = libs_sv | std::views::split(':') | std::views::transform([](auto r) { return std::filesystem::path{r.begin(), r.end()}; }) |
-					 std::ranges::to<std::vector>();
+		path_priorities[output_path] = gcc_lib_paths();
 	}
 }
 
-void Symbol_matcher::add_lib(std::filesystem::path lib) {
-	for (auto &symbol : parse_lib(lib, true, {})) { //TODO: Pass proper library dirs
+void Symbol_matcher::add_lib(std::filesystem::path lib, const std::vector<std::filesystem::path> &lib_paths) {
+	for (auto &symbol : parse_lib(lib, true, lib_paths)) {
 		switch (symbol.type) {
 			case Symbol_type::defined:
 				undefined.erase(symbol.name);
@@ -200,7 +186,7 @@ std::string Symbol_matcher::resolve_to_command() {
 			throw Unresolved_result{{.symbol = {.type = Symbol_type::undefined, .name = symbol}, .origin = origins[type_origin.origin_index]}};
 		}
 		if (libs.size() == 1) {
-			add_lib(std::string{libs[0]}); //invalidates current iterator
+			add_lib(std::string{libs[0]}, gcc_lib_paths()); //invalidates current iterator
 			it = std::begin(undefined);
 			continue;
 		}
