@@ -6,6 +6,7 @@
 #include "symbol_database.h"
 #include "utility.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cmath>
@@ -40,25 +41,69 @@ void update(int jobs) {
 
 	PROF << "to find libraries";
 
-	const auto parse_start = std::chrono::high_resolution_clock::now();
-	//function for each thread to execute, which takes a chunk of paths to scan from the queue and scans them until the queue is empty
-	std::atomic<int> granularity = 1000;
 	const auto &lib_paths = gcc_lib_paths();
-	auto thread_handler = [&file_paths = std::as_const(file_paths), &handled_libs, library_candidates = std::as_const(library_candidates), &parse_start,
-						   &granularity, &skipped_libs, &lib_paths] {
+	static auto print_status_update = [&library_candidates](std::size_t lib_index) {
+		if (lib_index == 0) {
+			return;
+		}
+		static std::atomic<decltype(std::chrono::high_resolution_clock::now())> last_update = std::chrono::high_resolution_clock::now();
+		constexpr auto update_rate = std::chrono::seconds{1};
+		auto now = std::chrono::high_resolution_clock::now();
+		if (now < last_update.load() + update_rate) {
+			return;
+		}
+		static std::mutex m;
+		std::lock_guard _{m};
+		if (now < last_update.load() + update_rate) {
+			return;
+		}
+		const auto time_passed = now - last_update.load();
+		last_update = last_update.load() + std::chrono::seconds{1};
+		const auto libs_left = library_candidates - lib_index;
+		static std::size_t old_lib_indexes[11] = {};
+		std::shift_left(std::begin(old_lib_indexes), std::end(old_lib_indexes), 1);
+		old_lib_indexes[std::size(old_lib_indexes) - 1] = lib_index;
+		auto updates = std::size(old_lib_indexes) - 1;
+		for (std::size_t i = 1; i < std::size(old_lib_indexes) - 1; i++) {
+			if (old_lib_indexes[i]) {
+				break;
+			}
+			updates--;
+		}
+		const auto last_updated_lib_index = old_lib_indexes[std::size(old_lib_indexes) - 1 - updates];
+		const auto percentage = lib_index * 100. / library_candidates;
+		std::print("\033[F\033[2K\033[G{:.2f}% ", percentage);
+		auto estimate = 1. / (lib_index - last_updated_lib_index) * updates * 1. * libs_left;
+		std::pair<int, char> conversions[] = {
+			{0, 's'},
+			{60, 'm'},
+			{60, 'h'},
+			{24, 'd'},
+		};
+		std::size_t conversion_index = 0;
+		while (conversion_index + 1 < std::size(conversions)) {
+			auto &next_conversion = conversions[conversion_index + 1];
+			if (estimate > next_conversion.first) {
+				estimate /= next_conversion.first;
+				conversion_index++;
+			} else {
+				break;
+			}
+		}
+		if (conversion_index == 0) {
+			std::print("{:.0f}s", estimate);
+		} else {
+			std::print("{}{} {:.0f}{}", static_cast<int>(estimate), conversions[conversion_index].second,
+					   std::fmod(estimate, 1) * conversions[conversion_index].first, conversions[conversion_index - 1].second);
+		}
+		std::cout << std::endl;
+	};
+
+	auto thread_handler = [&file_paths = std::as_const(file_paths), &handled_libs, library_candidates = std::as_const(library_candidates), &skipped_libs,
+						   &lib_paths] {
 		Symbol_database::Writer symbol_map{library_candidates};
 		for (std::size_t lib_index = handled_libs++; lib_index < std::size(file_paths); lib_index = handled_libs++) {
-			int granularity_local = granularity;
-			if (lib_index > 100 and lib_index * granularity_local / library_candidates > ((lib_index - 1) * granularity_local) / library_candidates) {
-				const auto ms_passed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - parse_start).count();
-				const auto fraction_complete = lib_index * 1. / library_candidates;
-				const auto expected_runtime_s = ms_passed / fraction_complete / 1000;
-				const int suitable_fraction = std::pow(10, static_cast<int>(1 + std::log(expected_runtime_s) / log(10)));
-				granularity = granularity_local = suitable_fraction;
-				std::print("\033[F\033[2K\033[G{:.{}f}% {:.0f}s\n", (lib_index * granularity_local / library_candidates) / (granularity_local / 100.),
-						   std::max<int>(std::log(granularity_local / 100) - 1, 0), expected_runtime_s - ms_passed / 1000);
-				std::cout << std::flush;
-			}
+			print_status_update(lib_index);
 			auto libs = parse_lib(file_paths[lib_index], false, lib_paths);
 			if (libs.empty()) {
 				++skipped_libs;

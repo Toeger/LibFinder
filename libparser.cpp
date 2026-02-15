@@ -107,23 +107,23 @@ static void parse_linker_script(std::vector<Symbol> &symbol_list, std::filesyste
 					for_each_path(include_file, path, search_dirs, parse_script);
 				}
 			}
-		} else if (command == "INPUT") {
-		} else if (command == "GROUP") {
+		} else if (command == "INPUT" or command == "GROUP") {
 			std::string_view lib_list{value.first, value.second};
 			while (not lib_list.empty()) {
-				std::string_view lib_file{std::begin(lib_list), lib_list.find(' ')};
-				lib_list.remove_prefix(lib_file.size() + 1);
+				std::string_view lib_file{std::begin(lib_list), std::find_if(std::begin(lib_list), std::end(lib_list),
+																			 [](char c) { return c == ' ' or c == '(' or c == ')' or c == '\n'; })};
 				if (lib_file.empty()) {
+					lib_list.remove_prefix(1);
 					continue;
 				}
+				lib_list.remove_prefix(lib_file.size());
 				if (lib_file.starts_with('/')) {
 					parse_lib(symbol_list, lib_file, include_undefined, search_dirs);
 					continue;
 				}
-				if (lib_file == "AS_NEEDED" or lib_file == "(" or lib_file == ")") {
+				if (lib_file == "AS_NEEDED") {
 					continue;
 				}
-
 				auto parse_lib = [&include_undefined, &search_dirs, &symbol_list](const std::filesystem::path &include_path) {
 					::parse_lib(symbol_list, include_path, include_undefined, search_dirs);
 				};
