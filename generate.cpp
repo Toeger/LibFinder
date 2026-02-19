@@ -53,24 +53,28 @@ void update(int jobs) {
 			return;
 		}
 		static std::mutex m;
-		std::lock_guard _{m};
-		if (now < last_update.load() + update_rate) {
-			return;
-		}
-		const auto time_passed = now - last_update.load();
-		last_update = last_update.load() + std::chrono::seconds{1};
-		const auto libs_left = library_candidates - lib_index;
-		static std::size_t old_lib_indexes[11] = {};
-		std::shift_left(std::begin(old_lib_indexes), std::end(old_lib_indexes), 1);
-		old_lib_indexes[std::size(old_lib_indexes) - 1] = lib_index;
-		auto updates = std::size(old_lib_indexes) - 1;
-		for (std::size_t i = 1; i < std::size(old_lib_indexes) - 1; i++) {
-			if (old_lib_indexes[i]) {
-				break;
+		std::size_t last_updated_lib_index;
+		std::size_t updates;
+		std::size_t libs_left;
+		{
+			std::lock_guard lg{m};
+			if (now < last_update.load() + update_rate) {
+				return;
 			}
-			updates--;
+			last_update = last_update.load() + std::chrono::seconds{1};
+			static std::size_t old_lib_indexes[11] = {};
+			libs_left = library_candidates - lib_index;
+			std::shift_left(std::begin(old_lib_indexes), std::end(old_lib_indexes), 1);
+			old_lib_indexes[std::size(old_lib_indexes) - 1] = lib_index;
+			updates = std::size(old_lib_indexes) - 1;
+			for (std::size_t i = 1; i < std::size(old_lib_indexes) - 1; i++) {
+				if (old_lib_indexes[i]) {
+					break;
+				}
+				updates--;
+			}
+			last_updated_lib_index = old_lib_indexes[std::size(old_lib_indexes) - 1 - updates];
 		}
-		const auto last_updated_lib_index = old_lib_indexes[std::size(old_lib_indexes) - 1 - updates];
 		const auto percentage = lib_index * 100. / library_candidates;
 		std::print("\033[F\033[2K\033[G{:.2f}% ", percentage);
 		auto estimate = 1. / (lib_index - last_updated_lib_index) * updates * 1. * libs_left;

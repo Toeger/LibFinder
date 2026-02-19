@@ -1,6 +1,5 @@
 #include "symbol_matcher.h"
 #include "external/nlohmann/json/json.hpp"
-#include "utility.h"
 
 #include <algorithm>
 #include <cassert>
@@ -249,3 +248,23 @@ std::string Symbol_matcher::resolve_to_command() {
 bool Symbol_matcher::is_resolved() const {
 	return undefined.empty();
 }
+
+Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate unresolved)
+	: std::runtime_error{std::format("Error: Unresolved symbol {} / {} required by {}", unresolved.symbol.demangled_name(), unresolved.symbol.name,
+									 unresolved.origin.c_str())}
+	, symbol{std::move(unresolved.symbol)}
+	, origin{std::move(unresolved.origin)} {}
+
+std::string Symbol_matcher::Unresolved_result::resolve_origin(const Symbol &symbol, const std::filesystem::path &origin) {
+	std::string_view sv{origin.c_str()};
+	if (sv.ends_with(".o")) {
+	}
+	return symbol.name;
+}
+
+Symbol_matcher::Duplicate_symbol_error::Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea)
+	: std::runtime_error{std::format("Error: Duplicate symbol definition for {} in\n{} and\n{}", dsea.symbol.demangled_name(), dsea.lib1.c_str(),
+									 dsea.lib2.c_str())}
+	, symbol{std::move(dsea.symbol)}
+	, lib1{std::move(dsea.lib1)}
+	, lib2{std::move(dsea.lib2)} {}

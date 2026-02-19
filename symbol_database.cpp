@@ -1,5 +1,6 @@
 #include "symbol_database.h"
 #include "profile.h"
+#include "utility.h"
 
 #include <cassert>
 #include <cstring>
@@ -15,7 +16,8 @@
  * Type Lib_index is an index type with variable byte size lib_index_size
  * Type Offset is a file offset, alias for std::uint32_t
  *
- * char magic_number[12]; //"LibFinderV1\0"
+ * char magic_number[12] = "LibFinderV1";
+ * char install_status[]; //the state of the packages when the database was created, can be empty for unkown
  * std::uint8_t lib_index_size; //number of bytes of Lib_index type
  * std::uint32_t symbols; //number of symbol entries
  * Lib_index libs; //number of lib entries
@@ -25,12 +27,6 @@
  * Offset symbol_indexes[symbols]; //offsets of symbols indexes
  * char lib_db[][lib_index_size]; //lib entries of variable size, indexed by lib_indexes
  * Offset lib_indexes[libs]; //offsets of lib indexes, contains an extra entry for past symbol_db
- *
- * TODO: System status
- * Verify that it's a dpkg system:
- *	dpkg --robot --version
- * Get system status:
- *	ls -l /var/log/dpkg* | md5sum
  */
 
 template <class T>
@@ -39,7 +35,7 @@ static void leak(T &t) {
 	new (buffer) T(std::move(t));
 }
 
-constexpr char version[12] = "LibFinderV1";
+static constexpr auto &magic_number = "LibFinderV1";
 using Offset = std::uint32_t;
 
 void Symbol_database::Writer::add(std::string symbol, std::size_t lib_id) {
@@ -60,7 +56,11 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	stats.unique_symbols = symbol_db.size();
 
-	file.write(version, sizeof(version));
+	file.write(magic_number, sizeof magic_number);
+
+	const auto &install_status = get_install_status();
+	file.write(install_status.data(), install_status.size() + 1);
+
 	file << lib_index_size;
 
 	std::uint32_t symbols = symbol_db.size();
@@ -152,10 +152,16 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	data = static_cast<const uint8_t *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0));
 	close(file);
 	const std::uint8_t *cur = data;
-	if (std::memcmp(data, version, sizeof(version))) {
+	if (std::memcmp(data, magic_number, sizeof magic_number)) {
 		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
 	}
-	cur += sizeof(version);
+	cur += sizeof(magic_number);
+	const auto end_install_status = std::find(cur, data + data_size, '\0');
+	std::string_view install_status{reinterpret_cast<const char *>(cur), reinterpret_cast<const char *>(end_install_status)};
+	if (install_status != get_install_status()) {
+		std::cerr << "Warning: Outdated database, run libfinder -u\n";
+	}
+	cur = end_install_status + 1;
 	lib_index_size = *cur++;
 	std::memcpy(&symbols, cur, sizeof(std::uint32_t));
 	cur += sizeof(std::uint32_t);
@@ -292,13 +298,11 @@ Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
 		}
 		return true;
 	}()));
-	auto start_it = std::lower_bound(begin(), end(), prefix);
-	if (start_it == end()) {
-		return {};
-	}
+	const auto start_it = std::lower_bound(begin(), end(), prefix);
 	auto end_it = start_it;
-	while (++end_it < end() and (*end_it).starts_with(prefix))
-		;
+	while (end_it != end() and (*end_it).starts_with(prefix)) {
+		++end_it;
+	}
 	return get_libraries(start_it, end_it);
 }
 

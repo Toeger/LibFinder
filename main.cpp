@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) try {
 			std::sort(std::begin(libs), std::end(libs));
 			libs.erase(std::unique(std::begin(libs), std::end(libs)), std::end(libs));
 			for (auto &lib : libs) {
-				std::cout << '\t' << lib << '\n';
+				std::cout << '\t' << lib.string() << '\n';
 			}
 		}
 		return 0; //avoid double newline at end of output

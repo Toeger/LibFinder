@@ -126,4 +126,16 @@ std::string get_error_from_command(const char *command, std::vector<std::string>
 	return get_output(command, argv, "2>&1 1>/dev/null");
 }
 
+const std::string &get_install_status() {
+	static const std::string status = [] {
+		std::string retval;
+		auto dpkg_version = get_output_from_command("dpkg --robot --version", {});
+		if (not dpkg_version.empty() and dpkg_version.front() == '1') {
+			retval = get_output_from_command("ls -l /var/log/dpkg* | md5sum", {});
+		}
+		return retval;
+	}();
+	return status;
+}
+
 #endif

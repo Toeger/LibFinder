@@ -20,18 +20,9 @@ struct Symbol_matcher {
 			Symbol symbol;
 			std::filesystem::path origin;
 		};
-		Unresolved_result(Unresolved_result_aggregate unresolved)
-			: std::runtime_error{std::format("Error: Unresolved symbol {}({}) required by {}", unresolved.symbol.demangled_name(), unresolved.symbol.name,
-											 unresolved.origin.c_str())}
-			, symbol{std::move(unresolved.symbol)}
-			, origin{std::move(unresolved.origin)} {}
+		Unresolved_result(Unresolved_result_aggregate unresolved);
 
-		std::string resolve_origin(const Symbol &symbol, const std::filesystem::path &origin) {
-			std::string_view sv{origin.c_str()};
-			if (sv.ends_with(".o")) {
-			}
-			return symbol.name;
-		}
+		std::string resolve_origin(const Symbol &symbol, const std::filesystem::path &origin);
 
 		Symbol symbol;
 		std::filesystem::path origin;
@@ -43,12 +34,7 @@ struct Symbol_matcher {
 			std::filesystem::path lib1, lib2;
 		};
 
-		Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea)
-			: std::runtime_error{std::format("Error: Duplicate symbol definition for {} in\n{} and\n{}", dsea.symbol.demangled_name(), dsea.lib1.c_str(),
-											 dsea.lib2.c_str())}
-			, symbol{std::move(dsea.symbol)}
-			, lib1{std::move(dsea.lib1)}
-			, lib2{std::move(dsea.lib2)} {}
+		Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea);
 		Symbol symbol;
 		std::filesystem::path lib1, lib2;
 	};
