@@ -5,23 +5,32 @@
 
 namespace profile {
 	inline auto now = std::chrono::high_resolution_clock::now();
-}
+	inline std::ostream *target = nullptr;
+} // namespace profile
 
 struct Endler {
-	std::ostream &operator<<(const auto &thing) const {
-		return os << thing << ' ';
+	const Endler &operator<<(const auto &thing) const {
+		if (profile::target) {
+			(*profile::target) << ' ' << thing;
+		}
+		return *this;
 	}
 	~Endler() {
-		os << std::endl;
+		if (profile::target) {
+			(*profile::target) << std::endl;
+		}
 	}
-	std::ostream &os;
 };
 
 #define PROF                                                                                                                                                   \
-	Endler{std::cerr} << [] {                                                                                                                                  \
-		auto n = std::chrono::high_resolution_clock::now();                                                                                                    \
-		std::cerr << __FILE__ << ':' << __LINE__ << ": "                                                                                                       \
-				  << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(n - profile::now).count()) / 1000. << "s";                      \
-		profile::now = n;                                                                                                                                      \
-		return "";                                                                                                                                             \
-	}()
+	(                                                                                                                                                          \
+		[] {                                                                                                                                                   \
+			if (profile::target == nullptr) {                                                                                                                  \
+				return;                                                                                                                                        \
+			}                                                                                                                                                  \
+			auto n = std::chrono::high_resolution_clock::now();                                                                                                \
+			(*profile::target) << __FILE__ << ':' << __LINE__ << ": "                                                                                          \
+							   << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(n - profile::now).count()) / 1000. << "s";         \
+			profile::now = n;                                                                                                                                  \
+		}(),                                                                                                                                                   \
+		Endler{})

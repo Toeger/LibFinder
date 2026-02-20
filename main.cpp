@@ -1,6 +1,7 @@
 #include "main.h"
 #include "generate.h"
 #include "libparser.h"
+#include "profile.h"
 #include "symbol_database.h"
 #include "symbol_matcher.h"
 #include "test.h"
@@ -59,7 +60,8 @@ int main(int argc, char *argv[]) try {
 		"update lookup table (must be done before first use) with given number of threads (default=" + std::to_string(hardware_concurrency) + ")";
 	options.add_options()																										  //
 		("help,h", "print this")																								  //
-		("print,p", "print test")																								  //
+		("test,t", "test")																										  //
+		("profile,p", "Print timing measurements")																				  //
 		("update,u", boost::program_options::value<int>(&jobs)->implicit_value(hardware_concurrency), update_description.c_str()) //
 		("symbol,s", boost::program_options::value<std::string>(), "the symbol to look up")										  //
 		("linkcommand,c", boost::program_options::value<std::vector<std::string>>(), "the files to link")						  //
@@ -73,23 +75,26 @@ int main(int argc, char *argv[]) try {
 		return -1;
 	}
 	boost::program_options::notify(program_args);
-	if (program_args.count("print")) {
+	if (program_args.contains("test")) {
 		for (auto &symbol : parse_lib("/usr/lib/x86_64-linux-gnu/libc.so", false, {})) {
 			std::cout << symbol.name << '\n';
 		}
 		return 0;
 	}
-	if (program_args.count("help")) {
+	if (program_args.contains("profile")) {
+		profile::target = &std::cerr;
+	}
+	if (program_args.contains("help")) {
 		std::cout << options;
 	}
-	if (program_args.count("update")) {
+	if (program_args.contains("update")) {
 		if (jobs < 1) {
 			std::cerr << "jobs must be at least 1\n";
 			return -1;
 		}
 		update(jobs);
 	}
-	if (program_args.count("symbol")) {
+	if (program_args.contains("symbol")) {
 		const auto &prefix = program_args["symbol"].as<std::string>();
 		std::cout << "All symbols that have the prefix \"" << prefix << "\" and their libraries:\n";
 		Symbol_database::Reader reader{data_base_filepath};
@@ -104,7 +109,7 @@ int main(int argc, char *argv[]) try {
 		}
 		return 0; //avoid double newline at end of output
 	}
-	if (program_args.count("linkcommand")) {
+	if (program_args.contains("linkcommand")) {
 		std::vector<std::filesystem::path> files;
 		files.resize(argc - 2);
 		for (int i = 2; i < argc; i++) {

@@ -139,6 +139,6 @@ void update(int jobs) {
 	std::cout << "Writing result to " << data_base_filepath << "..." << std::endl;
 	std::cout << "Wrote " << number(stats.unique_symbols) << " unique symbols into " << bytes(stats.symbols_db_size) << " of database with an index of "
 			  << bytes(stats.symbols_index_size) << "\n";
-	std::cout << "Wrote " << number(handled_libs - skipped_libs) << " libraries into " << bytes(stats.libs_db_size) << " of database with an index of "
+	std::cout << "Wrote " << number(handled_libs) << " libraries into " << bytes(stats.libs_db_size) << " of database with an index of "
 			  << bytes(stats.libs_index_size) << "\n";
 }
