@@ -1,5 +1,6 @@
 #include "symbol_matcher.h"
 #include "external/nlohmann/json/json.hpp"
+#include "utility.h"
 
 #include <algorithm>
 #include <cassert>
@@ -42,6 +43,8 @@ void Symbol_matcher::add(Symbol symbol, std::filesystem::path origin) {
 }
 
 void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path) {
+	compile_commands_json_path = file_path;
+	compile_commands_json_path.remove_filename();
 	std::ifstream compile_commands{file_path};
 	if (not compile_commands) {
 		throw std::runtime_error{std::format("Failed opening file {}", file_path.c_str())};
@@ -50,6 +53,7 @@ void Symbol_matcher::load_compile_commands_json(std::filesystem::path file_path)
 		std::filesystem::path directory{obj["directory"]};
 		std::filesystem::path file{obj["file"]};
 		std::filesystem::path output{obj["output"]};
+		compiled_to_source_file[directory / output] = file;
 		std::vector<std::string> args;
 		if (auto it = obj.find("args"); it != std::end(obj)) {
 			for (auto &arg : *it) {
@@ -182,7 +186,15 @@ std::string Symbol_matcher::resolve_to_command() {
 			}
 		}
 		if (libs.empty()) {
-			throw Unresolved_result{{.symbol = {.type = Symbol_type::undefined, .name = symbol}, .origin = origins[type_origin.origin_index]}};
+			//std::cout << symbol << " / " << Symbol{.type = Symbol_type::undefined, .name = symbol}.demangled_name() << '\n';
+			//++it;
+			//continue;
+			throw Unresolved_result{{
+				.symbol = {.type = Symbol_type::undefined, .name = symbol},
+				.compiled_file = origins[type_origin.origin_index],
+				.source_file = compiled_to_source_file[origins[type_origin.origin_index]],
+				.compile_commands_json_path = compile_commands_json_path,
+			}};
 		}
 		if (libs.size() == 1) {
 			add_lib(std::string{libs[0]}, gcc_lib_paths()); //invalidates current iterator
@@ -249,18 +261,27 @@ bool Symbol_matcher::is_resolved() const {
 	return undefined.empty();
 }
 
-Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate unresolved)
-	: std::runtime_error{std::format("Error: Unresolved symbol {} / {} required by {}", unresolved.symbol.demangled_name(), unresolved.symbol.name,
-									 unresolved.origin.c_str())}
-	, symbol{std::move(unresolved.symbol)}
-	, origin{std::move(unresolved.origin)} {}
-
-std::string Symbol_matcher::Unresolved_result::resolve_origin(const Symbol &symbol, const std::filesystem::path &origin) {
-	std::string_view sv{origin.c_str()};
-	if (sv.ends_with(".o")) {
+static std::string unresolved_result_error_string(const Symbol_matcher::Unresolved_result::Unresolved_result_aggregate &unresolved) {
+	const auto &demangled_name = unresolved.symbol.demangled_name();
+	const auto &locations = get_locations(demangled_name, unresolved.source_file, unresolved.compile_commands_json_path);
+	std::string locations_string;
+	if (locations.size() == 1) {
+		locations_string = std::format("{}:{}", locations[0].first.string(), locations[0].second);
+	} else {
+		locations_string = "one of";
+		for (auto &location : locations) {
+			locations_string += std::format("\n{}:{}", location.first.string(), location.second);
+		}
 	}
-	return symbol.name;
+	return std::format("Error: Unresolved symbol {} / {} required by {} declared in {}", demangled_name, unresolved.symbol.name,
+					   unresolved.compiled_file.c_str(), locations_string);
 }
+
+Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate &&unresolved)
+	: std::runtime_error{unresolved_result_error_string(unresolved)}
+	, symbol{std::move(unresolved.symbol)}
+	, source_file{std::move(unresolved.source_file)}
+	, compiled_file{std::move(unresolved.compiled_file)} {}
 
 Symbol_matcher::Duplicate_symbol_error::Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea)
 	: std::runtime_error{std::format("Error: Duplicate symbol definition for {} in\n{} and\n{}", dsea.symbol.demangled_name(), dsea.lib1.c_str(),

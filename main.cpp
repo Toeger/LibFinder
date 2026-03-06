@@ -34,7 +34,7 @@ static void handle_linkcommand(std::span<std::filesystem::path> files) {
 	}
 
 	Symbol_matcher symbol_matcher{data_base_filepath};
-	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/Prop/build/compile_commands.json");
+	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/LibFinder/test/compile_commands.json");
 	for (auto &file : files) {
 		for (auto &symbol : parse_lib(file, true, {})) { //TODO: Pass proper library dirs
 			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
@@ -48,7 +48,6 @@ static void handle_linkcommand(std::span<std::filesystem::path> files) {
 }
 
 int main(int argc, char *argv[]) try {
-	//assert((test(), true));
 	boost::program_options::options_description options(
 		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with "
 		"'libfinder "

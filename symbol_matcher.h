@@ -18,14 +18,15 @@ struct Symbol_matcher {
 	struct Unresolved_result : std::runtime_error {
 		struct Unresolved_result_aggregate {
 			Symbol symbol;
-			std::filesystem::path origin;
+			std::filesystem::path compiled_file;
+			std::filesystem::path source_file;
+			const std::filesystem::path &compile_commands_json_path;
 		};
-		Unresolved_result(Unresolved_result_aggregate unresolved);
-
-		std::string resolve_origin(const Symbol &symbol, const std::filesystem::path &origin);
+		Unresolved_result(Unresolved_result_aggregate &&unresolved);
 
 		Symbol symbol;
-		std::filesystem::path origin;
+		std::filesystem::path source_file;
+		std::filesystem::path compiled_file;
 	};
 
 	struct Duplicate_symbol_error : std::runtime_error {
@@ -53,4 +54,6 @@ struct Symbol_matcher {
 	std::vector<std::filesystem::path /*libs*/> origins;
 	Symbol_database::Reader db;
 	std::map<std::filesystem::path /*input file*/, std::vector<std::filesystem::path> /*priorities*/> path_priorities;
+	std::filesystem::path compile_commands_json_path;
+	std::map<std::filesystem::path /*compiled_file*/, std::filesystem::path /*source_file*/> compiled_to_source_file;
 };

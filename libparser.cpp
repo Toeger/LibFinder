@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cxxabi.h>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -226,7 +227,25 @@ std::string Symbol::demangled_name() const {
 }
 
 std::string Symbol::demangled_name(std::string name) {
-	auto result = get_output_from_command("c++filt", {std::move(name)});
-	result.pop_back();
-	return result;
+	int status = 1;
+	std::unique_ptr<char, decltype([](char *s) { std::free(s); })> p{abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status)};
+	if (status) {
+		const char *error;
+		switch (status) {
+			case -1:
+				error = "memory allocation failed";
+				break;
+			case -2:
+				error = "invalid mangled name";
+				break;
+			case -3:
+				error = "invalid argument";
+				break;
+			default:
+				error = "unknown error";
+				break;
+		}
+		throw std::runtime_error{std::format("Failed demangling '{}' because {}", name, error)};
+	}
+	return p.get();
 }

@@ -1,5 +1,160 @@
-#if 0
 #include "utility.h"
+#include <cassert>
+#include <format>
+#include <fstream>
+#include <memory>
+#include <ranges>
+#include <regex>
+
+static std::string &replace_all(std::string &str, char old, std::string_view replacement) {
+	for (std::size_t pos = str.find(old); pos != std::string::npos; pos = str.find(old, pos)) {
+		str.replace(pos, 1, replacement);
+		pos += std::size(replacement);
+	}
+	return str;
+}
+
+static std::string get_output(const char *command, std::vector<std::string> argv, std::string postfix, std::filesystem::path working_directory) {
+	std::string com;
+	if (working_directory != ".") {
+		com = "cd " + working_directory.string() + " && ";
+	}
+	com += command;
+	for (auto &arg : argv) {
+		com += " \"" + replace_all(arg, '"', R"(\")") + "\"";
+	}
+	com += " " + postfix;
+	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{popen(com.data(), "r")};
+	if (!fp) {
+		return {};
+	}
+	std::string buffer;
+	const int buffersize = 1024;
+	for (;;) {
+		buffer.resize(buffer.size() + buffersize);
+		std::size_t read = fread(&buffer[buffer.size() - buffersize], sizeof *buffer.data(), buffersize, fp.get());
+		if (read < buffersize) {
+			buffer.resize(buffer.size() - buffersize + read);
+			break;
+		}
+	}
+	return buffer;
+}
+
+std::string get_output_from_command(const char *command, std::vector<std::string> argv, std::filesystem::path working_directory) {
+	return get_output(command, argv, "2>/dev/null", working_directory);
+}
+
+std::string get_error_from_command(const char *command, std::vector<std::string> argv, std::filesystem::path working_directory) {
+	return get_output(command, argv, "2>&1 1>/dev/null", working_directory);
+}
+
+const std::string &get_install_status() {
+	static const std::string status = [] {
+		std::string retval;
+		auto dpkg_version = get_output_from_command("dpkg --robot --version", {});
+		if (not dpkg_version.empty() and dpkg_version.front() == '1') {
+			retval = get_output_from_command("ls -l /var/log/dpkg* | md5sum", {});
+		}
+		return retval;
+	}();
+	return status;
+}
+
+static std::string to_clang_query(std::string_view type_string) {
+	if (type_string.ends_with('\n')) {
+		type_string.remove_suffix(1);
+	}
+	auto name = type_string;
+	[&] {
+		for (std::size_t i = 0; i < std::size(name); i++) {
+			switch (name[i]) {
+				case '(':
+				case ' ':
+				case '[':
+				case '<':
+					assert(i != 0);
+					name.remove_suffix(std::size(name) - i);
+					//break(2);
+					return;
+			}
+		}
+	}();
+	type_string.remove_prefix(std::size(name));
+
+	int parenthesis_count = 0;
+	int template_count = 0;
+	int param_count = 0;
+	bool is_function = false;
+
+	for (std::size_t i = 0; i < std::size(type_string); i++) {
+		switch (type_string[i]) {
+			case '(':
+				parenthesis_count++;
+				if (template_count == 0) {
+					is_function = true;
+				}
+				continue;
+			case ')':
+				parenthesis_count--;
+				if (parenthesis_count == 0 and template_count == 0 and type_string[i - 1] != '(') {
+					param_count++;
+				}
+				continue;
+			case '<':
+				template_count++;
+				continue;
+			case '>':
+				template_count--;
+				continue;
+			case ',':
+				if (parenthesis_count == 1 and template_count == 0) {
+					param_count++;
+				}
+				continue;
+		}
+	}
+	return std::format(R"(set output detailed-ast
+
+match {}Decl(
+	unless(
+		isDefinition()
+	),
+	hasName("::{}"){}
+))",
+					   is_function ? "function" : "var", name, is_function ? std::format(",\n\tparameterCountIs({})", param_count) : "");
+}
+
+std::vector<std::pair<std::filesystem::path, int>> get_locations(std::string_view type_string, std::filesystem::path file,
+																 std::filesystem::path compile_commands_json_directory) {
+	const auto &query = to_clang_query(type_string);
+	const auto &tempfile = "/tmp/cq.cq";
+	std::ofstream{tempfile} << query;
+	const auto result = get_output_from_command("clang-query-21", {"-f", tempfile, "-p", compile_commands_json_directory, file});
+	std::vector<std::pair<std::filesystem::path, int>> retval;
+	bool match_regex = false;
+	for (auto line_match : std::ranges::views::split(result, '\n')) {
+		std::string_view line{line_match};
+		if (match_regex) {
+			match_regex = false;
+			static const std::regex regex{R"(.*Decl 0x[0-9a-f]+ <([^:]+):(\d+).*)", std::regex::optimize};
+			std::cmatch match;
+			if (std::regex_match(std::begin(line), std::end(line), match, regex)) {
+				const auto &matched_file = match[1];
+				const auto &matched_line = match[2];
+				retval.push_back({{matched_file}, std::stoi(matched_line)});
+			} else {
+				throw std::runtime_error{std::format("Failed parsing file and line number from {}", line)};
+			}
+		} else if (line == "Binding for \"root\":") {
+			match_regex = true;
+		}
+	}
+	return retval;
+}
+
+namespace {
+#if 0
 #include "raii.h"
 
 #include <cassert>
@@ -90,52 +245,5 @@ std::string get_output_from_command(const char *command, std::vector<std::string
 		std::exit(-1);
 	}
 }
-#else
-#include "utility.h"
-
-#include <memory>
-
-static std::string get_output(const char *command, std::vector<std::string> argv, std::string postfix) {
-	std::string com = command;
-	for (auto &arg : argv) {
-		com += " \"" + arg + "\"";
-	}
-	com += " " + postfix;
-	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{popen(com.data(), "r")};
-	if (!fp) {
-		return {};
-	}
-	std::string buffer;
-	const int buffersize = 1024;
-	for (;;) {
-		buffer.resize(buffer.size() + buffersize);
-		std::size_t read = fread(&buffer[buffer.size() - buffersize], sizeof *buffer.data(), buffersize, fp.get());
-		if (read < buffersize) {
-			buffer.resize(buffer.size() - buffersize + read);
-			break;
-		}
-	}
-	return buffer;
-}
-
-std::string get_output_from_command(const char *command, std::vector<std::string> argv) {
-	return get_output(command, argv, "2>/dev/null");
-}
-
-std::string get_error_from_command(const char *command, std::vector<std::string> argv) {
-	return get_output(command, argv, "2>&1 1>/dev/null");
-}
-
-const std::string &get_install_status() {
-	static const std::string status = [] {
-		std::string retval;
-		auto dpkg_version = get_output_from_command("dpkg --robot --version", {});
-		if (not dpkg_version.empty() and dpkg_version.front() == '1') {
-			retval = get_output_from_command("ls -l /var/log/dpkg* | md5sum", {});
-		}
-		return retval;
-	}();
-	return status;
-}
-
 #endif
+} // namespace
