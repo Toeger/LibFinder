@@ -8,7 +8,7 @@ static void test_symbol_loading() {
 	const auto &symbols = parse_lib("/usr/lib/x86_64-linux-gnu/libc.a", false, gcc_lib_paths());
 	const auto symbol_to_find = "__pthread_create";
 	for (const auto &symbol : symbols) {
-		if (symbol.name == symbol_to_find) {
+		if (symbol.mangled_name == symbol_to_find) {
 			return;
 		}
 	}

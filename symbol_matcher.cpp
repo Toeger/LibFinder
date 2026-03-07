@@ -1,4 +1,5 @@
 #include "symbol_matcher.h"
+#include "color.h"
 #include "external/nlohmann/json/json.hpp"
 #include "utility.h"
 
@@ -16,28 +17,28 @@ Symbol_matcher::Symbol_matcher(std::filesystem::path data_base)
 void Symbol_matcher::add(Symbol symbol, std::filesystem::path origin) {
 	switch (symbol.type) {
 		case Symbol_type::undefined:
-			if (defined.contains(symbol.name)) {
+			if (defined.contains(symbol.mangled_name)) {
 				return;
 			}
-			undefined[symbol.name] = {symbol.type, origin_index(origin)};
+			undefined[symbol.mangled_name] = {symbol.type, origin_index(origin)};
 			break;
 		case Symbol_type::defined:
-			if (undefined.contains(symbol.name)) {
-				undefined.erase(symbol.name);
+			if (undefined.contains(symbol.mangled_name)) {
+				undefined.erase(symbol.mangled_name);
 			}
-			if (auto it = defined.find(symbol.name); it != std::end(defined)) {
+			if (auto it = defined.find(symbol.mangled_name); it != std::end(defined)) {
 				if (it->second.type != Symbol_type::defined_weak) {
 					throw Duplicate_symbol_error{{.symbol = symbol, .lib1 = origin, .lib2 = origins[it->second.origin_index].c_str()}};
 				}
 			} else {
-				defined[symbol.name] = {symbol.type, origin_index(origin)};
+				defined[symbol.mangled_name] = {symbol.type, origin_index(origin)};
 			}
 			break;
 		case Symbol_type::defined_weak:
-			if (undefined.contains(symbol.name)) {
-				undefined.erase(symbol.name);
+			if (undefined.contains(symbol.mangled_name)) {
+				undefined.erase(symbol.mangled_name);
 			}
-			defined.insert({symbol.name, {symbol.type, origin_index(origin)}});
+			defined.insert({symbol.mangled_name, {symbol.type, origin_index(origin)}});
 			break;
 	}
 }
@@ -119,25 +120,25 @@ void Symbol_matcher::add_lib(std::filesystem::path lib, const std::vector<std::f
 	for (auto &symbol : parse_lib(lib, true, lib_paths)) {
 		switch (symbol.type) {
 			case Symbol_type::defined:
-				undefined.erase(symbol.name);
-				if (auto it = defined.find(symbol.name); it != std::end(defined)) {
+				undefined.erase(symbol.mangled_name);
+				if (auto it = defined.find(symbol.mangled_name); it != std::end(defined)) {
 					if (it->second.type != Symbol_type::defined_weak) {
 						throw Duplicate_symbol_error{{.symbol = symbol, .lib1 = lib, .lib2 = origins[it->second.origin_index]}};
 					}
 					it->second.type = symbol.type;
 				} else {
-					defined.insert({symbol.name, {.type = symbol.type, .origin_index = origin_index(lib)}});
+					defined.insert({symbol.mangled_name, {.type = symbol.type, .origin_index = origin_index(lib)}});
 				}
 				break;
 			case Symbol_type::defined_weak:
-				undefined.erase(symbol.name);
-				defined.insert({symbol.name, {.type = symbol.type, .origin_index = origin_index(lib)}});
+				undefined.erase(symbol.mangled_name);
+				defined.insert({symbol.mangled_name, {.type = symbol.type, .origin_index = origin_index(lib)}});
 				break;
 			case Symbol_type::undefined:
-				if (defined.contains(symbol.name)) {
+				if (defined.contains(symbol.mangled_name)) {
 					break;
 				}
-				undefined.insert({symbol.name, {.type = symbol.type, .origin_index = origin_index(lib)}});
+				undefined.insert({symbol.mangled_name, {.type = symbol.type, .origin_index = origin_index(lib)}});
 				break;
 		}
 	}
@@ -190,7 +191,7 @@ std::string Symbol_matcher::resolve_to_command() {
 			//++it;
 			//continue;
 			throw Unresolved_result{{
-				.symbol = {.type = Symbol_type::undefined, .name = symbol},
+				.symbol = {.type = Symbol_type::undefined, .mangled_name = symbol},
 				.compiled_file = origins[type_origin.origin_index],
 				.source_file = compiled_to_source_file[origins[type_origin.origin_index]],
 				.compile_commands_json_path = compile_commands_json_path,
@@ -265,16 +266,18 @@ static std::string unresolved_result_error_string(const Symbol_matcher::Unresolv
 	const auto &demangled_name = unresolved.symbol.demangled_name();
 	const auto &locations = get_locations(demangled_name, unresolved.source_file, unresolved.compile_commands_json_path);
 	std::string locations_string;
-	if (locations.size() == 1) {
-		locations_string = std::format("{}:{}", locations[0].first.string(), locations[0].second);
+	if (locations.size() == 0) {
+		locations_string = "unknown location";
+	} else if (locations.size() == 1) {
+		locations_string = std::format("{}:{}", Color::file(locations[0].first.string()), locations[0].second);
 	} else {
 		locations_string = "one of";
 		for (auto &location : locations) {
-			locations_string += std::format("\n{}:{}", location.first.string(), location.second);
+			locations_string += std::format("\n{}:{}", Color::file(location.first.string()), location.second);
 		}
 	}
-	return std::format("Error: Unresolved symbol {} / {} required by {} declared in {}", demangled_name, unresolved.symbol.name,
-					   unresolved.compiled_file.c_str(), locations_string);
+	return std::format("{}: Unresolved symbol {} required by {}\nExpected definition of {} near {}", Color::error("Error"), Color::symbol(demangled_name),
+					   Color::file(unresolved.compiled_file.c_str()), Color::symbol(unresolved.symbol.base_name()), locations_string);
 }
 
 Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate &&unresolved)
@@ -284,8 +287,8 @@ Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate
 	, compiled_file{std::move(unresolved.compiled_file)} {}
 
 Symbol_matcher::Duplicate_symbol_error::Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea)
-	: std::runtime_error{std::format("Error: Duplicate symbol definition for {} in\n{} and\n{}", dsea.symbol.demangled_name(), dsea.lib1.c_str(),
-									 dsea.lib2.c_str())}
+	: std::runtime_error{std::format("{}: Duplicate symbol definition for {} in\n{} and\n{}", Color::error("Error"),
+									 Color::symbol(dsea.symbol.demangled_name()), Color::file(dsea.lib1.c_str()), Color::file(dsea.lib2.c_str()))}
 	, symbol{std::move(dsea.symbol)}
 	, lib1{std::move(dsea.lib1)}
 	, lib2{std::move(dsea.lib2)} {}

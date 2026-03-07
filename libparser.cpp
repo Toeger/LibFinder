@@ -208,7 +208,7 @@ static void parse_lib(std::vector<Symbol> &symbol_list, std::filesystem::path pa
 			if (line.contains('.')) {
 				continue;
 			}
-			symbol_list.push_back(Symbol{.type = type, .name = std::string{line}});
+			symbol_list.push_back(Symbol{.type = type, .mangled_name = std::string{line}});
 		} else {
 			parse_fail(std::format("Failed parsing line for {}:\n{}\nSpace expected", path.c_str(), line));
 			continue;
@@ -223,7 +223,27 @@ std::vector<Symbol> parse_lib(std::filesystem::path path, bool include_undefined
 }
 
 std::string Symbol::demangled_name() const {
-	return demangled_name(name);
+	return demangled_name(mangled_name);
+}
+
+std::string Symbol::base_name() const {
+	auto name = demangled_name();
+	std::string_view trunc = name;
+	narrow_to_base_name(trunc);
+	return std::string{trunc};
+}
+
+void Symbol::narrow_to_base_name(std::string_view &name) {
+	for (std::size_t i = 0; i < std::size(name); i++) {
+		switch (name[i]) {
+			case '(':
+			case ' ':
+			case '[':
+			case '<':
+				assert(i != 0);
+				name.remove_suffix(std::size(name) - i);
+		}
+	}
 }
 
 std::string Symbol::demangled_name(std::string name) {

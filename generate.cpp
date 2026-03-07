@@ -114,7 +114,7 @@ void update(int jobs) {
 				continue;
 			}
 			for (auto &symbol : libs) {
-				symbol_map.add(std::move(symbol.name), lib_index);
+				symbol_map.add(std::move(symbol.mangled_name), lib_index);
 			}
 		}
 		return symbol_map;

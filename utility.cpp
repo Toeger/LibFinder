@@ -1,4 +1,6 @@
 #include "utility.h"
+#include "libparser.h"
+
 #include <cassert>
 #include <format>
 #include <fstream>
@@ -66,20 +68,7 @@ static std::string to_clang_query(std::string_view type_string) {
 		type_string.remove_suffix(1);
 	}
 	auto name = type_string;
-	[&] {
-		for (std::size_t i = 0; i < std::size(name); i++) {
-			switch (name[i]) {
-				case '(':
-				case ' ':
-				case '[':
-				case '<':
-					assert(i != 0);
-					name.remove_suffix(std::size(name) - i);
-					//break(2);
-					return;
-			}
-		}
-	}();
+	Symbol::narrow_to_base_name(name);
 	type_string.remove_prefix(std::size(name));
 
 	int parenthesis_count = 0;

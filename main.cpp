@@ -37,7 +37,7 @@ static void handle_linkcommand(std::span<std::filesystem::path> files) {
 	symbol_matcher.load_compile_commands_json("/home/toeger/Projects/LibFinder/test/compile_commands.json");
 	for (auto &file : files) {
 		for (auto &symbol : parse_lib(file, true, {})) { //TODO: Pass proper library dirs
-			if (symbol.name != "_GLOBAL_OFFSET_TABLE_") {
+			if (symbol.mangled_name != "_GLOBAL_OFFSET_TABLE_") {
 				symbol_matcher.add(symbol, file);
 			}
 		}
@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) try {
 	boost::program_options::notify(program_args);
 	if (program_args.contains("test")) {
 		for (auto &symbol : parse_lib("/usr/lib/x86_64-linux-gnu/libc.so", false, {})) {
-			std::cout << symbol.name << '\n';
+			std::cout << symbol.mangled_name << '\n';
 		}
 		return 0;
 	}

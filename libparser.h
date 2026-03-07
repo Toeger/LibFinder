@@ -13,8 +13,10 @@ enum class Symbol_type : char {
 
 struct Symbol {
 	Symbol_type type;
-	std::string name;
+	std::string mangled_name;
 	std::string demangled_name() const;
+	std::string base_name() const;
+	static void narrow_to_base_name(std::string_view &name);
 	static std::string demangled_name(std::string name);
 };
 

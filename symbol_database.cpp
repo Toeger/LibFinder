@@ -1,4 +1,5 @@
 #include "symbol_database.h"
+#include "color.h"
 #include "profile.h"
 #include "utility.h"
 
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <print>
 #include <string>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -159,7 +161,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	const auto end_install_status = std::find(cur, data + data_size, '\0');
 	std::string_view install_status{reinterpret_cast<const char *>(cur), reinterpret_cast<const char *>(end_install_status)};
 	if (install_status != get_install_status()) {
-		std::cerr << "\033[38;2;214;214;0mWarning\033[0m: Outdated database, run libfinder -u\n";
+		std::println(stderr, "{}: Outdated database, run {}", Color::warning("Warning"), Color::command("libfinder -u"));
 	}
 	cur = end_install_status + 1;
 	lib_index_size = *cur++;
