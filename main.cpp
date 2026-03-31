@@ -4,7 +4,6 @@
 #include "profile.h"
 #include "symbol_database.h"
 #include "symbol_matcher.h"
-#include "test.h"
 #include "utility.h"
 
 #include <boost/filesystem.hpp>

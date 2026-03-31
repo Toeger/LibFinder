@@ -33,9 +33,11 @@ struct Symbol_matcher {
 		struct Duplicate_symbol_error_aggregate {
 			Symbol symbol;
 			std::filesystem::path lib1, lib2;
+			const std::filesystem::path &compile_commands_json_path;
 		};
 
-		Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea);
+		Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea,
+							   std::map<std::filesystem::__cxx11::path, std::filesystem::__cxx11::path> &compiled_to_source_file);
 		Symbol symbol;
 		std::filesystem::path lib1, lib2;
 	};
@@ -44,7 +46,7 @@ struct Symbol_matcher {
 
 	std::string resolve_to_command();
 
-	void add_lib(std::filesystem::path lib, const std::vector<std::filesystem::path> &lib_paths);
+	void add_lib(const std::filesystem::path &lib, const std::vector<std::filesystem::path> &lib_paths);
 
 	bool is_resolved() const;
 

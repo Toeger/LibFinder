@@ -1,11 +1,11 @@
 #include "color.h"
 #include <format>
 
-Color Color::warning = {{.rgb = 0xCCCC00}};
-Color Color::error = {{.rgb = 0xCC0000}};
-Color Color::symbol = {{.rgb = 0x8888FF}};
-Color Color::file = {{.rgb = 0x00AA00}};
-Color Color::command = Color::olive;
+Color Color::warning = {{.rgb = 0xBBBB44}};
+Color Color::error = {{.rgb = 0xBB4444}};
+Color Color::symbol = {{.rgb = 0x8888BB}};
+Color Color::file = {{.rgb = 0x44BB44}};
+Color Color::command = {{.rgb = 0x888844}};
 
 std::string Color::operator()(std::string_view sv) {
 	return std::format("{}{}{}", *this, sv, Color::reset);

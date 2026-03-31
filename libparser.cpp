@@ -182,7 +182,7 @@ static void parse_lib(std::vector<Symbol> &symbol_list, std::filesystem::path pa
 			case 'g': //global
 				break;
 			case 'u': //unique global
-				break;
+				continue;
 			case '!': //local and global
 				break;
 			case ' ': //undefined

@@ -3,7 +3,7 @@
 
 #include <cassert>
 #include <format>
-#include <fstream>
+#include <iostream>
 #include <memory>
 #include <ranges>
 #include <regex>
@@ -17,6 +17,7 @@ static std::string &replace_all(std::string &str, char old, std::string_view rep
 }
 
 static std::string get_output(const char *command, std::vector<std::string> argv, std::string postfix, std::filesystem::path working_directory) {
+	constexpr auto debug_output = false;
 	std::string com;
 	if (working_directory != ".") {
 		com = "cd " + working_directory.string() + " && ";
@@ -27,6 +28,9 @@ static std::string get_output(const char *command, std::vector<std::string> argv
 	}
 	com += " " + postfix;
 	std::unique_ptr<FILE, decltype([](FILE *f) { pclose(f); })> fp{popen(com.data(), "r")};
+	if constexpr (debug_output) {
+		std::cerr << com << '\n';
+	}
 	if (!fp) {
 		return {};
 	}
@@ -39,6 +43,9 @@ static std::string get_output(const char *command, std::vector<std::string> argv
 			buffer.resize(buffer.size() - buffersize + read);
 			break;
 		}
+	}
+	if constexpr (debug_output) {
+		std::cerr << buffer << '\n';
 	}
 	return buffer;
 }
@@ -63,7 +70,7 @@ const std::string &get_install_status() {
 	return status;
 }
 
-static std::string to_clang_query(std::string_view type_string) {
+static std::string to_clang_query(std::string_view type_string, Symbol_location_type symbol_location_type) {
 	if (type_string.ends_with('\n')) {
 		type_string.remove_suffix(1);
 	}
@@ -103,23 +110,32 @@ static std::string to_clang_query(std::string_view type_string) {
 				continue;
 		}
 	}
-	return std::format(R"(set output detailed-ast
-
-match {}Decl(
+	const char *decldef{};
+	switch (symbol_location_type) {
+		case Symbol_location_type::declarations:
+			decldef = R"(
 	unless(
 		isDefinition()
-	),
-	hasName("::{}"){}
+	),)";
+			break;
+		case Symbol_location_type::definitions:
+			decldef = R"(
+	isDefinition(),)";
+			break;
+		case Symbol_location_type::declarations_and_definitions:
+			decldef = "";
+	}
+	return std::format(R"(match {}Decl({}
+	hasName('::{}'){}
 ))",
-					   is_function ? "function" : "var", name, is_function ? std::format(",\n\tparameterCountIs({})", param_count) : "");
+					   is_function ? "function" : "var", decldef, name, is_function ? std::format(",\n\tparameterCountIs({})", param_count) : "");
 }
 
 std::vector<std::pair<std::filesystem::path, int>> get_locations(std::string_view type_string, std::filesystem::path file,
-																 std::filesystem::path compile_commands_json_directory) {
-	const auto &query = to_clang_query(type_string);
-	const auto &tempfile = "/tmp/cq.cq";
-	std::ofstream{tempfile} << query;
-	const auto result = get_output_from_command("clang-query-21", {"-f", tempfile, "-p", compile_commands_json_directory, file});
+																 std::filesystem::path compile_commands_json_directory,
+																 Symbol_location_type symbol_location_type) {
+	const auto &query = to_clang_query(type_string, symbol_location_type);
+	const auto result = get_output_from_command("clang-query-21", {"-c", "set output detailed-ast", "-c", query, "-p", compile_commands_json_directory, file});
 	std::vector<std::pair<std::filesystem::path, int>> retval;
 	bool match_regex = false;
 	for (auto line_match : std::ranges::views::split(result, '\n')) {
@@ -131,7 +147,7 @@ std::vector<std::pair<std::filesystem::path, int>> get_locations(std::string_vie
 			if (std::regex_match(std::begin(line), std::end(line), match, regex)) {
 				const auto &matched_file = match[1];
 				const auto &matched_line = match[2];
-				retval.push_back({{matched_file}, std::stoi(matched_line)});
+				retval.push_back({std::filesystem::weakly_canonical({matched_file}), std::stoi(matched_line)});
 			} else {
 				throw std::runtime_error{std::format("Failed parsing file and line number from {}", line)};
 			}
