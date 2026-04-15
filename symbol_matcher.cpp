@@ -1,7 +1,7 @@
 #include "symbol_matcher.h"
 #include "color.h"
 #include "external/nlohmann/json/json.hpp"
-#include "utility.h"
+#include "libclang.h"
 
 #include <algorithm>
 #include <cassert>
@@ -282,22 +282,20 @@ bool Symbol_matcher::is_resolved() const {
 }
 
 static std::string unresolved_result_error_string(const Symbol_matcher::Unresolved_result::Unresolved_result_aggregate &unresolved) {
-	const auto &demangled_name = unresolved.symbol.demangled_name();
-	const auto &locations = get_locations(demangled_name, unresolved.source_file, unresolved.compile_commands_json_path, Symbol_location_type::declarations);
-	std::string locations_string;
-	if (locations.size() == 0) {
-		locations_string = "unknown location";
-	} else if (locations.size() == 1) {
-		locations_string = std::format("{}:{}", Color::file(locations[0].first.string()), locations[0].second);
-	} else {
-		locations_string = "one of";
-		for (auto &location : locations) {
-			locations_string += std::format("\n{}:{}", Color::file(location.first.string()), location.second);
-		}
+	const auto &location = Libclang{unresolved.source_file, unresolved.compile_commands_json_path}.get_locations(unresolved.symbol.mangled_name);
+	if (location.declaration and location.usage) {
+		return std::format(
+			"{}: Unresolved symbol\n"
+			"{}\n"
+			"required by\n"
+			"{}\ndeclared in\n"
+			"{}\n",
+			Color::error("Error"), Color::symbol(unresolved.symbol.demangled_name()), location.usage, location.declaration);
 	}
-	return std::format("{}: Unresolved symbol {} required by (TODO: Resolve:)\n{}\nExpected definition of {} near\n{}", Color::error("Error"),
-					   Color::symbol(demangled_name), Color::file(unresolved.compiled_file.c_str()), Color::symbol(unresolved.symbol.base_name()),
-					   locations_string);
+	return std::format(
+		"{}: Unresolved symbol {}\n"
+		"Failed resolving location\n",
+		Color::error("Error"), Color::symbol(unresolved.symbol.demangled_name()));
 }
 
 Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate &&unresolved)
@@ -309,23 +307,33 @@ Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate
 static std::string
 duplicate_symbol_error_string(const Symbol_matcher::Duplicate_symbol_error::Duplicate_symbol_error_aggregate &dsea,
 							  std::map<std::filesystem::path /*compiled_file*/, std::filesystem::path /*source_file*/> &compiled_to_source_file) {
-	const auto &demangled_name = dsea.symbol.demangled_name();
-	std::set<std::pair<std::filesystem::path, int>> locations;
-	locations.insert_range(
-		get_locations(demangled_name, compiled_to_source_file[dsea.lib1], dsea.compile_commands_json_path, Symbol_location_type::definitions));
-	locations.insert_range(
-		get_locations(demangled_name, compiled_to_source_file[dsea.lib2], dsea.compile_commands_json_path, Symbol_location_type::definitions));
-	std::string locations_string;
-	if (locations.size() == 0) {
-		locations_string = " unknown location";
-	} else {
-		for (auto &location : locations) {
-			locations_string += std::format("\n{}:{}", Color::file(location.first.string()), location.second);
-		}
+	const auto &source1 = compiled_to_source_file[dsea.lib1];
+	const auto &source2 = compiled_to_source_file[dsea.lib2];
+	const auto &location1 = Libclang{source1, dsea.compile_commands_json_path}.get_locations(dsea.symbol.mangled_name);
+	const auto &location2 = Libclang{source2, dsea.compile_commands_json_path}.get_locations(dsea.symbol.mangled_name);
+	assert(location1.is_definition and location2.is_definition);
+	if (not(location1.is_definition and location2.is_definition)) {
+		throw std::runtime_error{"Internal error: Failed finding definition"}; //TODO: handle better
 	}
-	return std::format("{}: Duplicate symbol definition for {} in\n{} and\n{} defined in{}\n", Color::error("Error"),
-					   Color::symbol(dsea.symbol.demangled_name()), Color::file(dsea.lib1.c_str()), Color::file(dsea.lib2.c_str()),
-					   Color::file(locations_string));
+	if (location1.declaration == location2.declaration) {
+		return std::format(
+			"{}: Duplicate symbol definition for {}:\n"
+			"defined by both\n"
+			"{}\n"
+			"and\n"
+			"{}\n"
+			"in{}\n"
+			"Possible fix: Add inline or static to the definition\n",
+			Color::error("Error"), Color::symbol(dsea.symbol.demangled_name()), source1.string(), source2.string(), location1.declaration);
+	} else {
+		return std::format(
+			"{}: Duplicate symbol definition for {} in\n"
+			"{} and\n"
+			"{}\n"
+			"Possible fix: Delete one of the definitions\n",
+			Color::error("Error"), Color::symbol(dsea.symbol.demangled_name()), Color::file(dsea.lib1.c_str()), Color::file(dsea.lib2.c_str()),
+			Color::file(location1.declaration));
+	}
 }
 
 Symbol_matcher::Duplicate_symbol_error::Duplicate_symbol_error(

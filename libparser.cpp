@@ -256,8 +256,8 @@ std::string Symbol::demangled_name(std::string name) {
 				error = "memory allocation failed";
 				break;
 			case -2:
-				error = "invalid mangled name";
-				break;
+				//error = "invalid mangled name";
+				return name;
 			case -3:
 				error = "invalid argument";
 				break;

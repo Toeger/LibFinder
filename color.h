@@ -62,11 +62,16 @@ class Color {
 
 	std::string operator()(std::string_view sv);
 
+	template <class T>
+	std::string operator()(const T &t) {
+		return std::format("{}{}{}", *this, t, Color::reset);
+	}
+
 	//web colors
 	static const Color white, silver, gray, black, red, maroon, yellow, olive, lime, green, aqua, teal, blue, navy, fuchsia, purple;
 
 	//usage colors
-	static Color warning, error, symbol, file, command;
+	static Color warning, error, symbol, file, line, command;
 
 	struct Reset {
 	} static constexpr reset{};

@@ -36,8 +36,7 @@ struct Symbol_matcher {
 			const std::filesystem::path &compile_commands_json_path;
 		};
 
-		Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea,
-							   std::map<std::filesystem::__cxx11::path, std::filesystem::__cxx11::path> &compiled_to_source_file);
+		Duplicate_symbol_error(Duplicate_symbol_error_aggregate dsea, std::map<std::filesystem::path, std::filesystem::path> &compiled_to_source_file);
 		Symbol symbol;
 		std::filesystem::path lib1, lib2;
 	};
