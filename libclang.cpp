@@ -1,4 +1,5 @@
 #include "libclang.h"
+#include "symbol_matcher.h"
 
 #include <clang-c/Index.h>
 #include <format>
@@ -57,6 +58,9 @@ struct Clang_String {
 		return *this;
 	}
 	operator const char *() const {
+		return clang_getCString(str);
+	}
+	operator std::string() const {
 		return clang_getCString(str);
 	}
 	std::string_view to_string_view() const {
@@ -125,58 +129,84 @@ static Libclang::Location get_location(CXCursor cursor) {
 	};
 }
 
+static std::string get_mangled_name(CXCursor cursor) {
+	const Clang_String mangled = clang_Cursor_getMangling(cursor);
+	std::string result = mangled;
+	Symbol::canonicalize_mangling(result);
+	return result;
+}
+
 Libclang::Symbol_Location Libclang::get_locations(std::string_view mangled_name) {
 	struct User_Data {
 		Symbol_Location symbol_location;
 		std::string_view mangled_name;
-	} user_data{.symbol_location = {}, .mangled_name = mangled_name};
-	CXCursor cursor = clang_getTranslationUnitCursor(pimpl->translation_unit);
-	clang_visitChildren(
-		cursor,
-		[](CXCursor current_cursor, CXCursor /*parent*/, CXClientData client_data) {
-			//Clang_String current_display_name = clang_getCursorDisplayName(current_cursor);
-			//std::cout << "Visiting element " << Color::symbol(current_display_name) << " of type "
-			//		  << Color::symbol(magic_enum::enum_name(clang_getCursorKind(current_cursor))) << '(' << clang_getCursorKind(current_cursor) << ')'
-			//		  << " at " << get_location(current_cursor) << std::endl;
-			switch (clang_getCursorKind(current_cursor)) {
-				case CXCursor_VarDecl:
-				case CXCursor_FunctionDecl: {
-					if (auto display_name = Clang_String{clang_getCursorDisplayName(current_cursor)}; not display_name or not *display_name) {
+		CXCursorVisitor visitor;
+	} user_data{
+		.symbol_location = {},
+		.mangled_name = mangled_name,
+		.visitor =
+			[](CXCursor current_cursor, CXCursor /*parent*/, CXClientData client_data) {
+				if (Clang_String current_display_name = clang_getCursorDisplayName(current_cursor); not current_display_name or not *current_display_name) {
+					return CXChildVisit_Recurse;
+				}
+				if constexpr (false) {
+					Clang_String current_display_name = clang_getCursorDisplayName(current_cursor);
+					std::cout << "\033[F\033[2K\033[GVisiting element " << Color::symbol(current_display_name) << " of type "
+							  << Color::symbol(magic_enum::enum_name(clang_getCursorKind(current_cursor))) << '(' << clang_getCursorKind(current_cursor) << ')'
+							  << " at " << get_location(current_cursor) << std::endl;
+				}
+				switch (clang_getCursorKind(current_cursor)) {
+					case CXCursor_VarDecl:
+					case CXCursor_FunctionDecl: {
+						if (auto display_name = Clang_String{clang_getCursorDisplayName(current_cursor)}; not display_name or not *display_name) {
+							break;
+						}
+						const auto mangled = get_mangled_name(current_cursor);
+						if (mangled.empty()) {
+							break;
+						}
+						const auto ud = reinterpret_cast<User_Data *>(client_data);
+						if (mangled == ud->mangled_name) {
+							if (not ud->symbol_location.is_definition) {
+								ud->symbol_location.declaration = get_location(current_cursor);
+								ud->symbol_location.is_definition = clang_isCursorDefinition(current_cursor);
+							}
+						}
+					} break;
+					case CXCursor_VariableRef:
+					case CXCursor_CallExpr:
+					case CXCursor_MemberRefExpr:
+					case CXCursor_OverloadedDeclRef:
+					case CXCursor_DeclRefExpr: {
+						const auto ref_cursor = clang_getCursorReferenced(current_cursor);
+						if (clang_equalCursors(ref_cursor, clang_getNullCursor())) {
+							break;
+						}
+						auto ud = reinterpret_cast<User_Data *>(client_data);
+						//clang_visitChildren(ref_cursor, ud->visitor, client_data);
+						const auto mangled = get_mangled_name(ref_cursor);
+						if (mangled.empty()) {
+							break;
+						}
+						if constexpr (false) {
+							std::cout << "Mangled name: " << Color::symbol(mangled) << " at " << get_location(current_cursor) << '\n';
+							std::cout << "Demangled name: " << Color::symbol(Symbol{Symbol_type::undefined, mangled}.demangled_name()) << '\n';
+						}
+						if (mangled == ud->mangled_name) {
+							if (not ud->symbol_location.is_definition) {
+								ud->symbol_location.declaration = get_location(ref_cursor);
+								ud->symbol_location.is_definition = clang_isCursorDefinition(ref_cursor);
+							}
+							ud->symbol_location.usage = get_location(current_cursor);
+						}
+					} break;
+					default:
 						break;
-					}
-					const Clang_String mangled = clang_Cursor_getMangling(current_cursor);
-					const auto ud = reinterpret_cast<User_Data *>(client_data);
-					if (+mangled == ud->mangled_name) {
-						if (not ud->symbol_location.is_definition) {
-							ud->symbol_location.declaration = get_location(current_cursor);
-							ud->symbol_location.is_definition = clang_isCursorDefinition(current_cursor);
-						}
-					}
-				} break;
-				case CXCursor_VariableRef:
-				case CXCursor_CallExpr:
-				case CXCursor_MemberRefExpr: {
-					const auto ref_cursor = clang_getCursorReferenced(current_cursor);
-					if (clang_equalCursors(ref_cursor, clang_getNullCursor())) {
-						return CXChildVisit_Recurse;
-					}
-					const Clang_String mangled = clang_Cursor_getMangling(ref_cursor);
-					//std::cout << "Mangled name: " << Color::symbol(mangled) << " at " << get_location(current_cursor) << '\n';
-					//std::cout << "Demangled name: " << Color::symbol(Symbol{Symbol_type::undefined, +mangled}.demangled_name()) << '\n';
-					auto ud = reinterpret_cast<User_Data *>(client_data);
-					if (+mangled == ud->mangled_name) {
-						if (not ud->symbol_location.is_definition) {
-							ud->symbol_location.declaration = get_location(ref_cursor);
-							ud->symbol_location.is_definition = clang_isCursorDefinition(ref_cursor);
-						}
-						ud->symbol_location.usage = get_location(current_cursor);
-					}
-				} break;
-				default:
-					break;
-			}
-			return CXChildVisit_Recurse;
-		},
-		&user_data);
+				}
+				return CXChildVisit_Recurse;
+			},
+	};
+	CXCursor cursor = clang_getTranslationUnitCursor(pimpl->translation_unit);
+	clang_visitChildren(cursor, user_data.visitor, &user_data);
 	return std::move(user_data.symbol_location);
 }

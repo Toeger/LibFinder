@@ -161,7 +161,7 @@ static void parse_lib(std::vector<Symbol> &symbol_list, std::filesystem::path pa
 		std::cerr << message << '\n';
 		exit(-1);
 	};
-	auto symbols = get_output_from_command("objdump", {"-tTw", std::string{path}});
+	auto symbols = get_output_from_command("objdump", {"-tTw", path.string()});
 	if (symbols.empty()) {
 		parse_linker_script(symbol_list, path, include_undefined, search_dirs);
 		return;
@@ -208,7 +208,7 @@ static void parse_lib(std::vector<Symbol> &symbol_list, std::filesystem::path pa
 			if (line.contains('.')) {
 				continue;
 			}
-			symbol_list.push_back(Symbol{.type = type, .mangled_name = std::string{line}});
+			symbol_list.push_back(Symbol{{.type = type, .mangled_name = std::string{line}}});
 		} else {
 			parse_fail(std::format("Failed parsing line for {}:\n{}\nSpace expected", path.c_str(), line));
 			continue;
@@ -220,6 +220,18 @@ std::vector<Symbol> parse_lib(std::filesystem::path path, bool include_undefined
 	std::vector<Symbol> symbol_list;
 	parse_lib(symbol_list, path, include_undefined, search_dirs);
 	return symbol_list;
+}
+
+Symbol::Symbol(Symbol_Aggregate &&aggregate)
+	: type{std::move(aggregate.type)}
+	, mangled_name{std::move(aggregate.mangled_name)} {
+	canonicalize_mangling(mangled_name);
+}
+
+Symbol::Symbol(Symbol_type type_, std::string mangled_name_)
+	: type{std::move(type_)}
+	, mangled_name{std::move(mangled_name_)} {
+	canonicalize_mangling(mangled_name);
 }
 
 std::string Symbol::demangled_name() const {
@@ -246,26 +258,41 @@ void Symbol::narrow_to_base_name(std::string_view &name) {
 	}
 }
 
-std::string Symbol::demangled_name(std::string name) {
-	int status = 1;
-	std::unique_ptr<char, decltype([](char *s) { std::free(s); })> p{abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status)};
-	if (status) {
-		const char *error;
-		switch (status) {
-			case -1:
-				error = "memory allocation failed";
-				break;
-			case -2:
-				//error = "invalid mangled name";
-				return name;
-			case -3:
-				error = "invalid argument";
-				break;
-			default:
-				error = "unknown error";
-				break;
+std::string Symbol::demangled_name(std::string mangled_name) {
+	constexpr bool using_builtin_demangler = false;
+	if constexpr (using_builtin_demangler) {
+		int status = 1;
+		std::unique_ptr<char, decltype([](char *s) { std::free(s); })> p{abi::__cxa_demangle(mangled_name.c_str(), nullptr, nullptr, &status)};
+		if (status) {
+			const char *error;
+			switch (status) {
+				case -1:
+					error = "memory allocation failed";
+					break;
+				case -2:
+					//error = "invalid mangled name";
+					return mangled_name;
+				case -3:
+					error = "invalid argument";
+					break;
+				default:
+					error = "unknown error";
+					break;
+			}
+			throw std::runtime_error{std::format("Failed demangling '{}' because {}", mangled_name, error)};
 		}
-		throw std::runtime_error{std::format("Failed demangling '{}' because {}", name, error)};
+		return p.get();
+	} else {
+		auto result = get_output_from_command("llvm-cxxfilt-21", {mangled_name});
+		result.pop_back();
+		return result;
 	}
-	return p.get();
+}
+
+void Symbol::canonicalize_mangling(std::string &mangled_name) {
+	//Attempt to work around llvm issue 192841
+	const auto pos = mangled_name.find("TnDa");
+	if (pos != std::string::npos) {
+		mangled_name.erase(pos, 4);
+	}
 }

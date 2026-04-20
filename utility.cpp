@@ -1,11 +1,8 @@
 #include "utility.h"
-#include "libparser.h"
 
 #include <cassert>
-#include <format>
 #include <iostream>
 #include <memory>
-#include <ranges>
 #include <regex>
 
 static std::string &replace_all(std::string &str, char old, std::string_view replacement) {
@@ -16,7 +13,8 @@ static std::string &replace_all(std::string &str, char old, std::string_view rep
 	return str;
 }
 
-static std::string get_output(const char *command, std::vector<std::string> argv, std::string postfix, std::filesystem::path working_directory) {
+static std::string get_output(const char *command, std::vector<std::string> argv, std::string postfix, std::filesystem::path working_directory,
+							  int *result = nullptr) {
 	constexpr auto debug_output = false;
 	std::string com;
 	if (working_directory != ".") {
@@ -47,6 +45,9 @@ static std::string get_output(const char *command, std::vector<std::string> argv
 	if constexpr (debug_output) {
 		std::cerr << buffer << '\n';
 	}
+	if (result) {
+		*result = pclose(fp.release());
+	}
 	return buffer;
 }
 
@@ -68,6 +69,12 @@ const std::string &get_install_status() {
 		return retval;
 	}();
 	return status;
+}
+
+std::pair<int, std::string> run_command(const char *command, std::vector<std::string> argv, std::filesystem::path working_directory) {
+	int result{};
+	std::string output = get_output(command, argv, "2>&1", working_directory, &result);
+	return {result, std::move(output)};
 }
 
 namespace {

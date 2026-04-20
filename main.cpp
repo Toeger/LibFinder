@@ -4,7 +4,6 @@
 #include "profile.h"
 #include "symbol_database.h"
 #include "symbol_matcher.h"
-#include "utility.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
@@ -15,20 +14,11 @@
 #include <ranges>
 #include <thread>
 
-const std::string data_base_path = [] {
-	auto username = get_output_from_command("whoami", {});
-	username.pop_back(); //remove newline
-	return "/home/" + username + "/.libfinder";
-}();
-
-//TODO: find a way to share the files between users
-const std::string data_base_filepath = data_base_path + "/database";
-
 static void handle_linkcommand(std::span<std::filesystem::path> files) {
 	for (auto &file : files) {
 		file = std::filesystem::current_path() / file;
 		if (not std::filesystem::exists(file)) {
-			throw std::runtime_error{std::format("Error: file not found: {}", file.c_str())};
+			throw std::runtime_error{std::format("Error: file not found: {}", file.string())};
 		}
 	}
 

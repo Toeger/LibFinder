@@ -1,7 +1,6 @@
 #include "generate.h"
 #include "format.h"
 #include "libparser.h"
-#include "main.h"
 #include "profile.h"
 #include "symbol_database.h"
 #include "utility.h"
@@ -17,6 +16,15 @@
 #include <sstream>
 #include <string>
 #include <utility>
+
+const std::filesystem::path data_base_path = [] {
+	auto username = get_output_from_command("whoami", {});
+	username.pop_back(); //remove newline
+	return "/home/" + username + "/.libfinder";
+}();
+
+//TODO: find a way to share the files between users
+const std::filesystem::path data_base_filepath = data_base_path / "database";
 
 void update(int jobs) {
 	std::cout << "Collecting library candidates...\r" << std::flush;

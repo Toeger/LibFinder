@@ -1,6 +1,7 @@
-#ifndef GENERATE_H
-#define GENERATE_H
+#pragma once
+
+#include <filesystem>
 
 void update(int jobs);
 
-#endif // GENERATE_H
+extern const std::filesystem::path data_base_filepath;

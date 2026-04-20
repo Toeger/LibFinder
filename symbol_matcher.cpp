@@ -210,7 +210,7 @@ std::string Symbol_matcher::resolve_to_command() {
 			//++it;
 			//continue;
 			throw Unresolved_result{{
-				.symbol = {.type = Symbol_type::undefined, .mangled_name = symbol},
+				.symbol = {{.type = Symbol_type::undefined, .mangled_name = symbol}},
 				.compiled_file = origins[type_origin.origin_index],
 				.source_file = compiled_to_source_file[origins[type_origin.origin_index]],
 				.compile_commands_json_path = compile_commands_json_path,
@@ -294,8 +294,9 @@ static std::string unresolved_result_error_string(const Symbol_matcher::Unresolv
 	}
 	return std::format(
 		"{}: Unresolved symbol {}\n"
-		"Failed resolving location\n",
-		Color::error("Error"), Color::symbol(unresolved.symbol.demangled_name()));
+		"required by\n"
+		"{}\n",
+		Color::error("Error"), Color::symbol(unresolved.symbol.demangled_name()), Color::file(unresolved.source_file.string()));
 }
 
 Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate &&unresolved)

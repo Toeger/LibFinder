@@ -60,10 +60,10 @@ class Color {
 		return r << 24 | g << 16 | b << 8 | a;
 	}
 
-	std::string operator()(std::string_view sv);
+	std::string operator()(std::string_view sv) const;
 
 	template <class T>
-	std::string operator()(const T &t) {
+	std::string operator()(const T &t) const {
 		return std::format("{}{}{}", *this, t, Color::reset);
 	}
 

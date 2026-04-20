@@ -8,7 +8,7 @@ Color Color::file = {{.rgb = 0x44BB44}};
 Color Color::line = file;
 Color Color::command = {{.rgb = 0x888844}};
 
-std::string Color::operator()(std::string_view sv) {
+std::string Color::operator()(std::string_view sv) const {
 	return std::format("{}{}{}", *this, sv, Color::reset);
 }
 
