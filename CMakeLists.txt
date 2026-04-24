@@ -34,7 +34,8 @@ target_include_directories(${PROJECT_NAME}_tests SYSTEM PRIVATE ${CLANG_INCLUDE_
 target_include_directories(${PROJECT_NAME}_tests SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external)
 target_link_libraries(${PROJECT_NAME}_tests PRIVATE libclang ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} Catch2::Catch2WithMain)
 target_compile_definitions(${PROJECT_NAME}_tests PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+aux_source_directory(tests/test_data TESTS_LIST)
 add_custom_target(TEST_FILES
 	COMMENT "This target only exists to list files in IDEs"
-	SOURCES "tests/test_data/decldefs.cpp"
+	SOURCES ${TESTS_LIST}
 )

@@ -160,7 +160,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path)
 	cur += sizeof(magic_number);
 	const auto end_install_status = std::find(cur, data + data_size, '\0');
 	std::string_view install_status{reinterpret_cast<const char *>(cur), reinterpret_cast<const char *>(end_install_status)};
-	if (install_status != get_install_status()) {
+	if ((outdated = install_status != get_install_status())) {
 		std::println(stderr, "{}: Outdated database, run {}", Color::warning("Warning"), Color::command("libfinder -u"));
 	}
 	cur = end_install_status + 1;
@@ -206,15 +206,25 @@ Symbol_database::Reader::~Reader() {
 	}
 }
 
+#define SYMBOL_DATABASE_MEMBERS                                                                                                                                \
+	X(data), X(data_size), X(symbols), X(libs), X(symbol_db), X(symbol_indexes), X(lib_db), X(lib_indexes), X(lib_index_size), X(outdated)
+
 Symbol_database::Reader::Reader(Reader &&other)
-	: data_size{other.data_size} {
-	data = other.data;
+	:
+#define X(MEMBER)                                                                                                                                              \
+	MEMBER {                                                                                                                                                   \
+		std::move(other.MEMBER)                                                                                                                                \
+	}
+	SYMBOL_DATABASE_MEMBERS
+#undef X
+{
 	other.data = nullptr;
 }
 
 Symbol_database::Reader &Symbol_database::Reader::operator=(Symbol_database::Reader &&other) {
-	std::swap(data_size, other.data_size);
-	std::swap(data, other.data);
+#define X(MEMBER) std::swap(MEMBER, other.MEMBER)
+	(SYMBOL_DATABASE_MEMBERS);
+#undef X
 	return *this;
 }
 
@@ -306,6 +316,10 @@ Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
 		++end_it;
 	}
 	return get_libraries(start_it, end_it);
+}
+
+bool Symbol_database::Reader::is_outdated() const {
+	return outdated;
 }
 
 std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {

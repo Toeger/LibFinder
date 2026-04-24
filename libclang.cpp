@@ -36,7 +36,11 @@ Libclang::Libclang(std::filesystem::path path_, std::filesystem::path compile_co
 	: path{std::move(path_)}
 	, pimpl{std::make_unique<Libclang_Pimpl>()} {
 	pimpl->index = {0, 0};
-	pimpl->translation_unit = {pimpl->index, path.c_str(), nullptr, 0, nullptr, 0, CXTranslationUnit_None};
+	const char *args[] = {
+		"-std=c++26", //TODO: read standard from compile_commands_json_directory
+					  //TODO: Add -fclang-abi-compat=X where X matches the mangling standard of the compiler specified in compile_commands_json_directory
+	};
+	pimpl->translation_unit = {pimpl->index, path.c_str(), args, std::size(args), nullptr, 0, CXTranslationUnit_DetailedPreprocessingRecord};
 	if (pimpl->translation_unit == nullptr) {
 		throw std::runtime_error{std::format("Failed loading file {}", path.string())};
 	}
@@ -75,8 +79,8 @@ struct Clang_String_Set {
 			++strings;
 			return *this;
 		}
-		Clang_String operator*() {
-			return *strings;
+		std::string_view operator*() {
+			return clang_getCString(*strings);
 		}
 		auto operator<=>(const Clang_String_Set_Iterator &) const = default;
 		CXString *strings;
@@ -95,10 +99,10 @@ struct Clang_String_Set {
 		}
 	}
 
-	Clang_String_Set_Iterator begin() {
+	Clang_String_Set_Iterator begin() const {
 		return {strs ? strs->Strings : nullptr};
 	}
-	Clang_String_Set_Iterator end() {
+	Clang_String_Set_Iterator end() const {
 		return {strs ? strs->Strings + strs->Count : nullptr};
 	}
 
@@ -129,52 +133,60 @@ static Libclang::Location get_location(CXCursor cursor) {
 	};
 }
 
-static std::string get_mangled_name(CXCursor cursor) {
-	const Clang_String mangled = clang_Cursor_getMangling(cursor);
-	std::string result = mangled;
-	Symbol::canonicalize_mangling(result);
-	return result;
+Libclang::Symbol_Location Libclang::get_locations(std::string_view mangled_name) {
+	std::map<std::string_view, Symbol_Location> name_locations{{mangled_name, {}}};
+	get_locations(name_locations);
+	return name_locations[mangled_name];
 }
 
-Libclang::Symbol_Location Libclang::get_locations(std::string_view mangled_name) {
+void Libclang::get_locations(std::map<std::string_view /*mangled_name*/, Symbol_Location> &name_locations) {
 	struct User_Data {
-		Symbol_Location symbol_location;
-		std::string_view mangled_name;
+		std::map<std::string_view /*mangled_name*/, Symbol_Location> &name_locations;
 		CXCursorVisitor visitor;
 	} user_data{
-		.symbol_location = {},
-		.mangled_name = mangled_name,
+		.name_locations = name_locations,
 		.visitor =
 			[](CXCursor current_cursor, CXCursor /*parent*/, CXClientData client_data) {
-				if (Clang_String current_display_name = clang_getCursorDisplayName(current_cursor); not current_display_name or not *current_display_name) {
+				Clang_String current_display_name = clang_getCursorDisplayName(current_cursor);
+				if (not current_display_name or not *current_display_name) {
 					return CXChildVisit_Recurse;
 				}
 				if constexpr (false) {
-					Clang_String current_display_name = clang_getCursorDisplayName(current_cursor);
-					std::cout << "\033[F\033[2K\033[GVisiting element " << Color::symbol(current_display_name) << " of type "
-							  << Color::symbol(magic_enum::enum_name(clang_getCursorKind(current_cursor))) << '(' << clang_getCursorKind(current_cursor) << ')'
-							  << " at " << get_location(current_cursor) << std::endl;
+					if (get_location(current_cursor).path.filename() == "decldefs.cpp") {
+						std::cout << "Visiting element " << Color::symbol(current_display_name) << " of type "
+								  << Color::symbol(magic_enum::enum_name(clang_getCursorKind(current_cursor))) << '(' << clang_getCursorKind(current_cursor)
+								  << ')' << " at " << get_location(current_cursor) << std::endl;
+					}
 				}
 				switch (clang_getCursorKind(current_cursor)) {
 					case CXCursor_VarDecl:
-					case CXCursor_FunctionDecl: {
-						if (auto display_name = Clang_String{clang_getCursorDisplayName(current_cursor)}; not display_name or not *display_name) {
-							break;
-						}
-						const auto mangled = get_mangled_name(current_cursor);
-						if (mangled.empty()) {
-							break;
-						}
+					case CXCursor_FunctionDecl:
+					case CXCursor_CXXMethod: {
 						const auto ud = reinterpret_cast<User_Data *>(client_data);
-						if (mangled == ud->mangled_name) {
-							if (not ud->symbol_location.is_definition) {
-								ud->symbol_location.declaration = get_location(current_cursor);
-								ud->symbol_location.is_definition = clang_isCursorDefinition(current_cursor);
+						const auto mangled = Clang_String{clang_Cursor_getMangling(current_cursor)};
+						if (not mangled or not *mangled) {
+							break;
+						}
+						if (auto it = ud->name_locations.find(mangled.to_string_view()); it != std::end(ud->name_locations)) {
+							auto &location = it->second;
+							CXCursor cursor;
+							if (clang_isCursorDefinition(current_cursor)) {
+								location.is_definition = true;
+								cursor = current_cursor;
+							} else {
+								cursor = clang_getCursorDefinition(current_cursor);
+								if (clang_equalCursors(cursor, clang_getNullCursor())) {
+									cursor = current_cursor;
+									location.is_definition = false;
+								} else {
+									location.is_definition = true;
+								}
 							}
+							location.declaration = get_location(cursor);
 						}
 					} break;
-					case CXCursor_VariableRef:
 					case CXCursor_CallExpr:
+					case CXCursor_VariableRef:
 					case CXCursor_MemberRefExpr:
 					case CXCursor_OverloadedDeclRef:
 					case CXCursor_DeclRefExpr: {
@@ -182,22 +194,37 @@ Libclang::Symbol_Location Libclang::get_locations(std::string_view mangled_name)
 						if (clang_equalCursors(ref_cursor, clang_getNullCursor())) {
 							break;
 						}
-						auto ud = reinterpret_cast<User_Data *>(client_data);
-						//clang_visitChildren(ref_cursor, ud->visitor, client_data);
-						const auto mangled = get_mangled_name(ref_cursor);
-						if (mangled.empty()) {
+						const auto ud = reinterpret_cast<User_Data *>(client_data);
+						const auto mangled = Clang_String{clang_Cursor_getMangling(ref_cursor)};
+						if (not mangled or not *mangled) {
 							break;
+						}
+						if (mangled.to_string_view() == "_ZNSt7__cxx1118basic_stringstreamIcSt11char_traitsIcESaIcEED1Ev") {
+							std::cout << "";
 						}
 						if constexpr (false) {
 							std::cout << "Mangled name: " << Color::symbol(mangled) << " at " << get_location(current_cursor) << '\n';
 							std::cout << "Demangled name: " << Color::symbol(Symbol{Symbol_type::undefined, mangled}.demangled_name()) << '\n';
 						}
-						if (mangled == ud->mangled_name) {
-							if (not ud->symbol_location.is_definition) {
-								ud->symbol_location.declaration = get_location(ref_cursor);
-								ud->symbol_location.is_definition = clang_isCursorDefinition(ref_cursor);
+						if (auto it = ud->name_locations.find(mangled.to_string_view()); it != std::end(ud->name_locations)) {
+							auto &location = it->second;
+							if (not location.declaration) {
+								CXCursor cursor;
+								if (clang_isCursorDefinition(ref_cursor)) {
+									location.is_definition = true;
+									cursor = ref_cursor;
+								} else {
+									cursor = clang_getCursorDefinition(ref_cursor);
+									if (clang_equalCursors(cursor, clang_getNullCursor())) {
+										cursor = ref_cursor;
+										location.is_definition = false;
+									} else {
+										location.is_definition = true;
+									}
+								}
+								location.declaration = get_location(cursor);
 							}
-							ud->symbol_location.usage = get_location(current_cursor);
+							location.usage = get_location(current_cursor);
 						}
 					} break;
 					default:
@@ -208,5 +235,4 @@ Libclang::Symbol_Location Libclang::get_locations(std::string_view mangled_name)
 	};
 	CXCursor cursor = clang_getTranslationUnitCursor(pimpl->translation_unit);
 	clang_visitChildren(cursor, user_data.visitor, &user_data);
-	return std::move(user_data.symbol_location);
 }

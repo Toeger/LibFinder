@@ -293,10 +293,11 @@ static std::string unresolved_result_error_string(const Symbol_matcher::Unresolv
 			Color::error("Error"), Color::symbol(unresolved.symbol.demangled_name()), location.usage, location.declaration);
 	}
 	return std::format(
-		"{}: Unresolved symbol {}\n"
+		"{}: Unresolved symbol {} ({})\n"
 		"required by\n"
-		"{}\n",
-		Color::error("Error"), Color::symbol(unresolved.symbol.demangled_name()), Color::file(unresolved.source_file.string()));
+		"{} ({})\n",
+		Color::error("Error"), Color::symbol(unresolved.symbol.mangled_name), Color::symbol(unresolved.symbol.demangled_name()),
+		Color::file(unresolved.compiled_file.string()), Color::file(unresolved.source_file.string()));
 }
 
 Symbol_matcher::Unresolved_result::Unresolved_result(Unresolved_result_aggregate &&unresolved)

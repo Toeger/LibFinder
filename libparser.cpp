@@ -1,4 +1,5 @@
 #include "libparser.h"
+#include "color.h"
 #include "utility.h"
 
 #include <algorithm>
@@ -222,17 +223,13 @@ std::vector<Symbol> parse_lib(std::filesystem::path path, bool include_undefined
 	return symbol_list;
 }
 
-Symbol::Symbol(Symbol_Aggregate &&aggregate)
+Symbol::Symbol(Aggregate &&aggregate)
 	: type{std::move(aggregate.type)}
-	, mangled_name{std::move(aggregate.mangled_name)} {
-	canonicalize_mangling(mangled_name);
-}
+	, mangled_name{std::move(aggregate.mangled_name)} {}
 
 Symbol::Symbol(Symbol_type type_, std::string mangled_name_)
 	: type{std::move(type_)}
-	, mangled_name{std::move(mangled_name_)} {
-	canonicalize_mangling(mangled_name);
-}
+	, mangled_name{std::move(mangled_name_)} {}
 
 std::string Symbol::demangled_name() const {
 	return demangled_name(mangled_name);
@@ -259,7 +256,7 @@ void Symbol::narrow_to_base_name(std::string_view &name) {
 }
 
 std::string Symbol::demangled_name(std::string mangled_name) {
-	constexpr bool using_builtin_demangler = false;
+	constexpr bool using_builtin_demangler = true;
 	if constexpr (using_builtin_demangler) {
 		int status = 1;
 		std::unique_ptr<char, decltype([](char *s) { std::free(s); })> p{abi::__cxa_demangle(mangled_name.c_str(), nullptr, nullptr, &status)};
@@ -289,10 +286,19 @@ std::string Symbol::demangled_name(std::string mangled_name) {
 	}
 }
 
-void Symbol::canonicalize_mangling(std::string &mangled_name) {
-	//Attempt to work around llvm issue 192841
-	const auto pos = mangled_name.find("TnDa");
-	if (pos != std::string::npos) {
-		mangled_name.erase(pos, 4);
+std::ostream &operator<<(std::ostream &os, const Symbol &symbol) {
+	switch (symbol.type) {
+		case Symbol_type::defined:
+			os << Color::symbol_type("defined");
+			break;
+		case Symbol_type::defined_weak:
+			os << Color::symbol_type("weak");
+			break;
+		case Symbol_type::undefined:
+			os << Color::symbol_type("undefined");
+			break;
 	}
+	os << " symbol " << Color::symbol(symbol.mangled_name) << " (" << Color::symbol(symbol.demangled_name()) << ')';
+
+	return os;
 }

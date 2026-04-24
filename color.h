@@ -71,7 +71,7 @@ class Color {
 	static const Color white, silver, gray, black, red, maroon, yellow, olive, lime, green, aqua, teal, blue, navy, fuchsia, purple;
 
 	//usage colors
-	static Color warning, error, symbol, file, line, command;
+	static Color warning, error, symbol, symbol_type, file, line, command;
 
 	struct Reset {
 	} static constexpr reset{};

@@ -34,6 +34,7 @@ namespace Symbol_database {
 		Reader &operator=(Reader &&other);
 		std::vector<std::filesystem::path> libraries_from_symbol(std::string_view symbol) const;
 		std::map<std::string_view, std::vector<std::filesystem::path>> libraries_from_prefix(std::string_view symbol_prefixes) const;
+		bool is_outdated() const;
 
 		private:
 		struct Symbol_db_iterator;
@@ -52,5 +53,6 @@ namespace Symbol_database {
 		const std::uint8_t *lib_db;
 		const std::uint8_t *lib_indexes;
 		std::uint8_t lib_index_size;
+		bool outdated;
 	};
 }; // namespace Symbol_database

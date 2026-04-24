@@ -3,6 +3,7 @@
 #include "color.h"
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <ostream>
 
@@ -19,7 +20,10 @@ struct Libclang {
 		}
 
 		friend std::ostream &operator<<(std::ostream &os, const Location &location) {
-			return os << Color::file(location.path.string()) << ':' << Color::line(location.line);
+			if (location.line) {
+				return os << Color::file(location.path.string()) << ':' << Color::line(location.line);
+			}
+			return os << Color::file("<unknown location>");
 		}
 	};
 
@@ -27,6 +31,11 @@ struct Libclang {
 		Location declaration{};
 		bool is_definition{};
 		Location usage{};
+		friend std::ostream &operator<<(std::ostream &os, const Symbol_Location &location) {
+			os << (location.is_definition ? "Definition" : "Declaration") << " at " << location.declaration << '\n';
+			os << "Usage at " << location.usage << '\n';
+			return os;
+		}
 	};
 
 	Libclang(std::filesystem::path path, std::filesystem::path compile_commands_json_directory);
@@ -35,6 +44,7 @@ struct Libclang {
 	~Libclang();
 
 	Symbol_Location get_locations(std::string_view mangled_name);
+	void get_locations(std::map<std::string_view /*mangled_name*/, Symbol_Location> &name_locations);
 
 	std::filesystem::path path;
 	std::unique_ptr<Libclang_Pimpl> pimpl;
