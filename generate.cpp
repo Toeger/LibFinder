@@ -40,14 +40,12 @@ void update(int jobs) {
 			assert(line.front() == '/');
 			queue.push_back(std::move(line));
 		}
-		PROF << "to collect list of libraries\n";
 		//file_paths.pop_n(queue.size() - 100);
 		library_candidates = queue.size();
 		std::cout << "Collecting symbols from " << number(library_candidates) << " library candidates...\n" << std::endl;
 		return queue;
 	}();
-
-	PROF << "to find libraries";
+	PROF << "to collect list of libraries";
 
 	const auto &lib_paths = gcc_lib_paths();
 	static auto print_status_update = [&library_candidates](std::size_t lib_index) {
@@ -140,7 +138,7 @@ void update(int jobs) {
 	}
 
 	//write results to disk
-	std::cout << "\033[F\033[2K\033[GFound " << number(symbol_map.size()) << " symbols in " << number(handled_libs - skipped_libs)
+	std::cout << "\033[F\033[2K\033[GFound " << number(symbol_map.symbol_count()) << " symbols in " << number(handled_libs - skipped_libs)
 			  << " libraries, writing database..." << std::endl;
 	const auto stats = symbol_map.write(data_base_filepath, std::move(file_paths));
 

@@ -3,6 +3,7 @@
 #include "profile.h"
 #include "utility.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <fcntl.h>
@@ -14,22 +15,43 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-/* Symbol database file format
- * Type Lib_index is an index type with variable byte size lib_index_size
- * Type Offset is a file offset, alias for std::uint32_t
- *
- * char magic_number[12] = "LibFinderV1";
- * char install_status[]; //the state of the packages when the database was created, can be empty for unkown
- * std::uint8_t lib_index_size; //number of bytes of Lib_index type
- * std::uint32_t symbols; //number of symbol entries
- * Lib_index libs; //number of lib entries
- * Offset symbol_indexes_start;
- * Offset lib_indexes_start;
- * [char *symbol, '\0', Lib_index libs[]] symbol_db[db_index_size]; //symbol entries of variable size, indexed by symbol_indexes
- * Offset symbol_indexes[symbols]; //offsets of symbols indexes
- * char lib_db[][lib_index_size]; //lib entries of variable size, indexed by lib_indexes
- * Offset lib_indexes[libs]; //offsets of lib indexes, contains an extra entry for past symbol_db
- */
+#if __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#else
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-variable"
+#endif
+
+namespace {
+	namespace For::documentation::of::file::format::only {
+		constexpr auto variable = !0;	   //indicates variable value
+		using Lib_Index = unsigned;		   //an index type with variable byte size lib_index_size
+		using File_Offset = std::uint32_t; //4 byte file offset type, offset from start of database file
+
+		const char magic_number[12] = "LibFinderV1";   //if it doesn't match file content, this documentation does not apply
+		char install_status[] = {variable};			   //the state of the packages when the database was created, null-terminated
+		const std::uint32_t symbol_count{variable};	   //number of symbols, mangled and demangled
+		const std::uint8_t sizeof_Lib_Index{variable}; //number of bytes of Lib_Index type
+		const Lib_Index lib_count{variable};		   //number of lib_db and lib_indexes entries
+
+		File_Offset mangled_symbol_indexes[symbol_count + 1]; //offsets to sorted mangled symbols in mangled_symbol_db
+		File_Offset lib_indexes[lib_count];					  //offsets of lib indexes, contains an extra entry for past symbol_db
+
+		struct {
+			char mangled_symbol[variable]; //null-terminated
+			Lib_Index libs[variable];	   //index to lib_indexes that provide symbol. The end of libs is the index of the next symbol
+		} mangled_symbol_db[symbol_count]; //indexed by both mangled_symbol_indexes and demangled_symbol_indexes
+		char lib_db[variable][lib_count];  //unsorted list of library paths, null-terminated
+	} // namespace For::documentation::of::file::format::only
+
+} // namespace
+
+#if __GNUC__
+#pragma GCC diagnostic pop
+#else
+#pragma clang diagnostic pop
+#endif
 
 template <class T>
 static void leak(T &t) {
@@ -38,67 +60,62 @@ static void leak(T &t) {
 }
 
 static constexpr auto &magic_number = "LibFinderV1";
-using Offset = std::uint32_t;
+using File_Offset = std::uint32_t;
 
-void Symbol_database::Writer::add(std::string symbol, std::size_t lib_id) {
-	data.front().push_back({std::move(symbol), lib_id});
+void Symbol_database::Writer::add(std::string mangled_symbol, std::size_t lib_id) {
+	mangled_data.front().push_back({std::move(mangled_symbol), lib_id});
 }
 
 Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
 	Symbol_database::Write_stats stats;
 	std::ofstream file{path, std::ios_base::out | std::ios_base::binary};
-	std::map<std::string /*symbol*/, std::string /*libs*/> symbol_db;
-	for (auto &list : data) {
+	std::map<std::string /*mangled_symbol*/, std::string /*libs*/> mangled_symbol_db;
+
+	for (const auto &list : mangled_data) {
 		for (auto &[symbol, lib] : list) {
-			symbol_db[symbol].append(std::string_view{reinterpret_cast<const char *>(&lib), lib_index_size});
+			mangled_symbol_db[symbol].append(std::string_view{reinterpret_cast<const char *>(&lib), sizeof_Lib_Index});
 		}
 	}
 
 	PROF << "to sort through symbols";
 
-	stats.unique_symbols = symbol_db.size();
+	stats.unique_symbols = mangled_symbol_db.size();
 
-	file.write(magic_number, sizeof magic_number);
+	file.write(magic_number, sizeof magic_number); //magic_number
 
 	const auto &install_status = get_install_status();
-	file.write(install_status.data(), install_status.size() + 1);
+	file.write(install_status.data(), install_status.size() + 1); //install_status
 
-	file << lib_index_size;
+	std::uint32_t symbol_count = mangled_symbol_db.size();
+	file.write(reinterpret_cast<const char *>(&symbol_count), sizeof(std::uint32_t)); //symbol_count
 
-	std::uint32_t symbols = symbol_db.size();
-	file.write(reinterpret_cast<const char *>(&symbols), sizeof(std::uint32_t));
+	file << sizeof_Lib_Index; //sizeof_Lib_Index
 
-	auto libs = libraries.size();
-	file.write(reinterpret_cast<const char *>(&libs), lib_index_size);
+	const auto lib_count = libraries.size();
+	file.write(reinterpret_cast<const char *>(&lib_count), sizeof_Lib_Index); //lib_count
 
-	Offset symbol_indexes_start{};
-	const Offset symbol_index_start_pos = +file.tellp();
-	file.write(reinterpret_cast<const char *>(&symbol_indexes_start), sizeof(Offset)); //placeholder
+	//seek past, fill out later
+	const auto indexes_start = file.tellp();
+	file.seekp(sizeof(File_Offset) * (symbol_count + 1) //mangled_symbol_indexes
+				   + sizeof(File_Offset) * lib_count,	//lib_indexes
+			   std::ios_base::cur);
 
-	Offset lib_indexes_start{};
-	file.write(reinterpret_cast<const char *>(&lib_indexes_start), sizeof(Offset)); //placeholder
-
-	//symbol_db
-	std::vector<Offset> symbol_indexes;
+	//mangled_symbol_db
 	stats.symbols_db_size = +file.tellp();
-	symbol_indexes.reserve(symbols);
-	for (const auto &[symbol, libindexes] : symbol_db) {
-		symbol_indexes.push_back(+file.tellp());
+	std::vector<File_Offset> mangled_symbol_indexes;
+	mangled_symbol_indexes.reserve(symbol_count + 1);
+	for (const auto &[symbol, libindexes] : mangled_symbol_db) {
+		mangled_symbol_indexes.push_back(+file.tellp());
 		file.write(symbol.c_str(), symbol.size() + 1);
 		file.write(libindexes.c_str(), libindexes.size());
 	}
+	mangled_symbol_indexes.push_back(+file.tellp());
+	assert(mangled_symbol_indexes.size() == symbol_count + 1);
 	stats.symbols_db_size = +file.tellp() - stats.symbols_db_size;
 
-	//symbol_indexes
-	stats.symbols_index_size = +file.tellp();
-	symbol_indexes_start = +file.tellp();
-	symbol_indexes.push_back(symbol_indexes_start);
-	file.write(reinterpret_cast<char *>(symbol_indexes.data()), symbol_indexes.size() * sizeof(Offset));
-	stats.symbols_index_size = +file.tellp() - stats.symbols_index_size;
-
 	//lib_db
-	std::vector<Offset> lib_indexes;
 	stats.libs_db_size = +file.tellp();
+	std::vector<File_Offset> lib_indexes;
 	lib_indexes.reserve(libraries.size());
 	for (auto &lib : libraries) {
 		lib_indexes.push_back(+file.tellp());
@@ -106,108 +123,142 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	}
 	stats.libs_db_size = +file.tellp() - stats.libs_db_size;
 
+	//end of file, now rewind to fill indexes
+	file.seekp(indexes_start, std::ios_base::beg);
+
+	stats.symbols_index_size = +file.tellp();
+
+	//mangled_symbol_indexes
+	file.write(reinterpret_cast<char *>(mangled_symbol_indexes.data()), mangled_symbol_indexes.size() * sizeof(File_Offset));
+	stats.symbols_index_size = +file.tellp() - stats.symbols_index_size;
+
 	//lib_indexes
 	stats.libs_index_size = +file.tellp();
-	lib_indexes_start = +file.tellp();
-	file.write(reinterpret_cast<char *>(lib_indexes.data()), lib_indexes.size() * sizeof(Offset));
+	file.write(reinterpret_cast<char *>(lib_indexes.data()), lib_indexes.size() * sizeof(File_Offset));
 	stats.libs_index_size = +file.tellp() - stats.libs_index_size;
-
-	//fill placeholders
-	file.seekp(symbol_index_start_pos);
-	file.write(reinterpret_cast<const char *>(&symbol_indexes_start), sizeof(Offset));
-	file.write(reinterpret_cast<const char *>(&lib_indexes_start), sizeof(Offset));
 
 	PROF << "to write results to disk";
 
-	leak(data);
-	leak(symbol_db);
+	leak(mangled_symbol_indexes);
+	leak(mangled_data);
+	leak(mangled_symbol_db);
 
 	return stats;
 }
 
 Symbol_database::Writer::Writer(std::size_t libraries)
-	: lib_index_size{1} {
+	: sizeof_Lib_Index{1} {
 	while (libraries > 255) {
 		libraries /= 256;
-		lib_index_size++;
+		sizeof_Lib_Index++;
 	}
 }
 
 void Symbol_database::Writer::merge(Writer &&other) {
-	for (auto &d : other.data) {
-		data.push_back(std::move(d));
+	for (auto &d : other.mangled_data) {
+		mangled_data.push_back(std::move(d));
 	}
-	other.data.push_back({});
+	other.mangled_data.push_back({});
 }
 
-std::size_t Symbol_database::Writer::size() const {
+std::size_t Symbol_database::Writer::symbol_count() const {
 	std::size_t size{};
-	for (auto &d : data) {
+	for (auto &d : mangled_data) {
 		size += d.size();
 	}
 	return size;
 }
 
-Symbol_database::Reader::Reader(std::filesystem::path path)
-	: data_size{std::filesystem::file_size(path)} {
+//static auto to_sv(std::basic_string_view<uint8_t> usv, std::size_t offset = 0) {
+//	usv.remove_prefix(offset);
+//	return std::string_view{reinterpret_cast<const char *>(&usv.front()), reinterpret_cast<const char *>(&usv.back())};
+//}
+
+static auto to_nullterminated_sv(std::basic_string_view<uint8_t> usv, std::size_t offset = 0) {
+	usv.remove_prefix(offset);
+	auto end_pos = usv.find('\0');
+	if (end_pos != usv.npos) {
+		usv.remove_suffix(usv.size() - end_pos - 1);
+	}
+	return std::string_view{reinterpret_cast<const char *>(&usv.front()), reinterpret_cast<const char *>(&usv.back())};
+}
+
+static auto make_sure(bool condition) {
+	if (not condition) {
+		throw std::runtime_error{"Invalid database format"};
+	}
+};
+
+Symbol_database::Reader::Reader(std::filesystem::path path) {
 	int file = open(path.c_str(), O_RDONLY);
-	data = static_cast<const uint8_t *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0));
+	const auto data_size = std::filesystem::file_size(path);
+	data = {static_cast<const std::uint8_t *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0)), data_size};
 	close(file);
-	const std::uint8_t *cur = data;
-	if (std::memcmp(data, magic_number, sizeof magic_number)) {
+	auto cur = data;
+
+	auto cur_sv = [&cur] { return to_nullterminated_sv(cur); };
+	struct {
+		std::basic_string_view<uint8_t> &cur;
+		operator std::uint32_t() {
+			std::uint32_t retval;
+			make_sure(cur.size() >= sizeof retval);
+			std::memcpy(&retval, &cur.front(), sizeof retval);
+			cur.remove_prefix(sizeof retval);
+			return retval;
+		}
+		operator std::uint8_t() {
+			std::uint8_t retval;
+			make_sure(cur.size() >= sizeof retval);
+			std::memcpy(&retval, &cur.front(), sizeof retval);
+			cur.remove_prefix(sizeof retval);
+			return retval;
+		}
+		std::size_t operator()(const std::size_t size) {
+			std::uint32_t retval;
+			make_sure(cur.size() >= size);
+			std::memcpy(&retval, &cur.front(), size);
+			cur.remove_prefix(size);
+			return retval;
+		}
+	} cur_to{cur};
+
+	//magic_number
+	if (cur_sv() != magic_number) {
 		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
 	}
-	cur += sizeof(magic_number);
-	const auto end_install_status = std::find(cur, data + data_size, '\0');
-	std::string_view install_status{reinterpret_cast<const char *>(cur), reinterpret_cast<const char *>(end_install_status)};
+	cur.remove_prefix(sizeof(magic_number));
+
+	//install_status
+	auto install_status = to_nullterminated_sv(cur);
 	if ((outdated = install_status != get_install_status())) {
 		std::println(stderr, "{}: Outdated database, run {}", Color::warning("Warning"), Color::command("libfinder -u"));
 	}
-	cur = end_install_status + 1;
-	lib_index_size = *cur++;
-	std::memcpy(&symbols, cur, sizeof(std::uint32_t));
-	cur += sizeof(std::uint32_t);
-	std::memcpy(&libs, cur, lib_index_size);
-	cur += lib_index_size;
-	Offset symbol_indexes_start;
-	std::memcpy(&symbol_indexes_start, cur, sizeof(Offset));
-	cur += sizeof(Offset);
-	symbol_indexes = data + symbol_indexes_start;
-	Offset lib_indexes_start;
-	std::memcpy(&lib_indexes_start, cur, sizeof(Offset));
-	cur += sizeof(Offset);
-	lib_indexes = data + lib_indexes_start;
-	symbol_db = cur;
-	lib_db = data + symbol_indexes_start + (symbols + 1) * sizeof(Offset);
-	assert((
-		[lib_indexes_start, libs = libs, data = data] {
-			for (std::size_t lib = 0; lib < libs; lib++) {
-				Offset pos;
-				std::memcpy(&pos, data + lib_indexes_start + lib * sizeof(Offset), sizeof(Offset));
-				assert(data[pos] == '/');
-				//std::cout << lib << ": " << data + pos << std::endl;
-			}
-		}(),
-		true));
-	assert((
-		[symbol_indexes_start, symbols = symbols, data = data] {
-			for (std::size_t symbol = 0; symbol < symbols; symbol++) {
-				Offset pos;
-				std::memcpy(&pos, data + symbol_indexes_start + symbol * sizeof(Offset), sizeof(Offset));
-				//std::cout << symbol << ": " << data + pos << std::endl;
-			}
-		}(),
-		true));
+	cur.remove_prefix(install_status.size() + 1);
+
+	//symbol_count
+	symbol_count = cur_to;
+
+	//sizeof_Lib_Index
+	sizeof_Lib_Index = cur_to;
+
+	//lib_count
+	lib_count = cur_to(sizeof_Lib_Index);
+
+	//mangled_symbol_indexes
+	mangled_symbol_indexes = cur.data();
+	cur.remove_prefix(sizeof(File_Offset) * (symbol_count + 1));
+
+	//lib_indexes
+	lib_indexes = cur.data();
 }
 
 Symbol_database::Reader::~Reader() {
-	if (data) {
-		munmap(const_cast<void *>(static_cast<const void *>(data)), data_size);
+	if (data.data()) {
+		munmap(const_cast<void *>(static_cast<const void *>(data.data())), data.size());
 	}
 }
 
-#define SYMBOL_DATABASE_MEMBERS                                                                                                                                \
-	X(data), X(data_size), X(symbols), X(libs), X(symbol_db), X(symbol_indexes), X(lib_db), X(lib_indexes), X(lib_index_size), X(outdated)
+#define SYMBOL_DATABASE_MEMBERS X(data), X(symbol_count), X(sizeof_Lib_Index), X(lib_count), X(mangled_symbol_indexes), X(lib_indexes), X(outdated)
 
 Symbol_database::Reader::Reader(Reader &&other)
 	:
@@ -218,7 +269,7 @@ Symbol_database::Reader::Reader(Reader &&other)
 	SYMBOL_DATABASE_MEMBERS
 #undef X
 {
-	other.data = nullptr;
+	other.data = {};
 }
 
 Symbol_database::Reader &Symbol_database::Reader::operator=(Symbol_database::Reader &&other) {
@@ -228,48 +279,48 @@ Symbol_database::Reader &Symbol_database::Reader::operator=(Symbol_database::Rea
 	return *this;
 }
 
-struct Symbol_database::Reader::Symbol_db_iterator {
+struct Symbol_database::Reader::Symbol_Db_Iterator {
 	using value_type = std::string_view;
 	using difference_type = std::ptrdiff_t;
 
 	std::string_view operator*() const {
-		return reinterpret_cast<const char *>(reader->data + offset());
+		return to_nullterminated_sv(reader->data, offset());
 	}
-	Symbol_db_iterator &operator++() {
+	Symbol_Db_Iterator &operator++() {
 		++index;
 		return *this;
 	}
-	Symbol_db_iterator &operator--() {
+	Symbol_Db_Iterator &operator--() {
 		--index;
 		return *this;
 	}
-	Symbol_db_iterator operator++(int) {
+	Symbol_Db_Iterator operator++(int) {
 		return {.index = index++, .reader = reader};
 	}
-	Symbol_db_iterator operator--(int) {
+	Symbol_Db_Iterator operator--(int) {
 		return {.index = index--, .reader = reader};
 	}
-	Symbol_db_iterator operator+(std::size_t offset) const {
+	Symbol_Db_Iterator operator+(std::size_t offset) const {
 		return {.index = index + offset, .reader = reader};
 	}
-	Symbol_db_iterator operator-(std::size_t offset) const {
+	Symbol_Db_Iterator operator-(std::size_t offset) const {
 		return {.index = index - offset, .reader = reader};
 	}
-	difference_type operator-(const Symbol_db_iterator &other) const {
+	difference_type operator-(const Symbol_Db_Iterator &other) const {
 		return static_cast<difference_type>(index) - static_cast<difference_type>(other.index);
 	}
-	Symbol_db_iterator &operator+=(std::size_t offset) {
+	Symbol_Db_Iterator &operator+=(std::size_t offset) {
 		index += offset;
 		return *this;
 	}
-	Symbol_db_iterator &operator-=(std::size_t offset) {
+	Symbol_Db_Iterator &operator-=(std::size_t offset) {
 		index -= offset;
 		return *this;
 	}
-	auto operator<=>(const Symbol_db_iterator &) const = default;
-	Offset offset() const {
-		Offset result;
-		std::memcpy(&result, reader->symbol_indexes + index * sizeof(Offset), sizeof(Offset));
+	auto operator<=>(const Symbol_Db_Iterator &) const = default;
+	File_Offset offset() const {
+		File_Offset result;
+		std::memcpy(&result, reader->mangled_symbol_indexes + index * sizeof(File_Offset), sizeof(File_Offset));
 		return result;
 	}
 
@@ -277,15 +328,15 @@ struct Symbol_database::Reader::Symbol_db_iterator {
 	const Symbol_database::Reader *reader;
 };
 
-Symbol_database::Reader::Symbol_db_iterator Symbol_database::Reader::begin() const {
+Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::begin() const {
 	return {.index = 0, .reader = this};
 }
 
-Symbol_database::Reader::Symbol_db_iterator Symbol_database::Reader::end() const {
-	return {.index = symbols, .reader = this};
+Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::end() const {
+	return {.index = symbol_count, .reader = this};
 }
 
-std::vector<std::filesystem::path /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string_view symbol) const {
+std::vector<std::filesystem::path /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string symbol) const {
 	auto it = std::lower_bound(begin(), end(), symbol);
 	if (it == end() or *it != symbol) {
 		return {};
@@ -294,7 +345,7 @@ std::vector<std::filesystem::path /*lib*/> Symbol_database::Reader::libraries_fr
 }
 
 std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/>
-Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
+Symbol_database::Reader::libraries_from_prefix(std::string symbol_prefixes) const {
 	assert(([&] {
 		auto first_non_sorted = std::is_sorted_until(begin(), end());
 		if (first_non_sorted != end()) {
@@ -310,9 +361,9 @@ Symbol_database::Reader::libraries_from_prefix(std::string_view prefix) const {
 		}
 		return true;
 	}()));
-	const auto start_it = std::lower_bound(begin(), end(), prefix);
+	const auto start_it = std::lower_bound(begin(), end(), symbol_prefixes);
 	auto end_it = start_it;
-	while (end_it != end() and (*end_it).starts_with(prefix)) {
+	while (end_it != end() and (*end_it).starts_with(symbol_prefixes)) {
 		++end_it;
 	}
 	return get_libraries(start_it, end_it);
@@ -323,27 +374,27 @@ bool Symbol_database::Reader::is_outdated() const {
 }
 
 std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {
-	Offset offset;
-	std::memcpy(&offset, symbol_indexes + index * sizeof(Offset), sizeof(Offset));
-	return {reinterpret_cast<const char *>(data + offset), sizeof(Offset)};
+	File_Offset offset;
+	std::memcpy(&offset, mangled_symbol_indexes + index * sizeof(File_Offset), sizeof(File_Offset));
+	return {reinterpret_cast<const char *>(data.data() + offset), sizeof(File_Offset)};
 }
 
-std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::Reader::get_libraries(Symbol_db_iterator begin, Symbol_db_iterator end) const {
+std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end) const {
 	std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> result;
 	while (begin < end) {
 		auto &found_libs = result[*begin];
-		const std::uint8_t *cur = data + begin.offset();
+		const std::uint8_t *cur = data.data() + begin.offset();
 		while (*cur++)
 			;
 		++begin;
-		const auto end_pos = data + begin.offset();
+		const auto end_pos = data.data() + begin.offset();
 		while (cur < end_pos) {
 			std::size_t lib_index{};
-			std::memcpy(&lib_index, cur, lib_index_size);
-			Offset lib_offset;
-			std::memcpy(&lib_offset, lib_indexes + lib_index * sizeof(Offset), sizeof(Offset));
-			found_libs.push_back(reinterpret_cast<const char *>(data + lib_offset));
-			cur += lib_index_size;
+			std::memcpy(&lib_index, cur, sizeof_Lib_Index);
+			File_Offset lib_offset;
+			std::memcpy(&lib_offset, lib_indexes + lib_index * sizeof(File_Offset), sizeof(File_Offset));
+			found_libs.push_back(to_nullterminated_sv(data.data() + lib_offset));
+			cur += sizeof_Lib_Index;
 		}
 	}
 	return result;

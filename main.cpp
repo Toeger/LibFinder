@@ -5,9 +5,7 @@
 #include "symbol_database.h"
 #include "symbol_matcher.h"
 
-#include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
-#include <expected>
 #include <format>
 #include <iostream>
 #include <print>

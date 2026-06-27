@@ -56,25 +56,41 @@ std::vector<std::filesystem::path> gcc_lib_paths(std::string_view compiler) {
 	return result;
 }
 
-void for_each_path(std::string_view file, const std::filesystem::path &path1, const std::vector<std::filesystem::path> &paths, auto &&function) {
+template <std::size_t file_count>
+	requires(file_count != 0)
+void for_each_path(std::array<std::string_view, file_count> files, const std::filesystem::path &path1, const std::vector<std::filesystem::path> &paths,
+				   auto &&function) {
 	auto p = path1;
-	auto candidate = p.remove_filename() / file;
-	if (std::filesystem::exists(candidate)) {
-		function(candidate);
-		return;
-	}
-	for (auto &path : paths) {
-		candidate = path / file;
+	for (auto &file : files) {
+		auto candidate = p.remove_filename() / file;
 		if (std::filesystem::exists(candidate)) {
 			function(candidate);
 			return;
+		}
+	}
+	for (auto &file : files) {
+		for (auto &path : paths) {
+			auto candidate = path / file;
+			if (std::filesystem::exists(candidate)) {
+				function(candidate);
+				return;
+			}
 		}
 	}
 	std::string dirs = path1;
 	for (auto &path : paths) {
 		dirs += '\n' + std::string{path};
 	}
-	std::println(stderr, "Failed finding file {} required by {} in any of the include directories:\n{}", file, path1.string(), dirs);
+	if constexpr (files.size() == 1) {
+		std::println(stderr, "Failed finding file {} required by {} in any of the include directories:\n{}", files[0], path1.string(), dirs);
+	} else {
+		std::println(stderr, "Failed finding any of the files {} required by {} in any of the include directories:\n{}",
+					 files | std::ranges::views::join_with(std::string{", "}), path1.string(), dirs);
+	}
+}
+
+void for_each_path(std::string_view file, const std::filesystem::path &path1, const std::vector<std::filesystem::path> &paths, auto &&function) {
+	for_each_path<1>({file}, path1, paths, function);
 }
 
 static void parse_linker_script(std::vector<Symbol> &symbol_list, std::filesystem::path path, bool include_undefined,
@@ -133,8 +149,7 @@ static void parse_linker_script(std::vector<Symbol> &symbol_list, std::filesyste
 					lib_file.remove_prefix(2);
 					std::string lib_candidate{"lib"};
 					lib_candidate += lib_file;
-					lib_candidate += ".a";
-					for_each_path(lib_candidate, path, search_dirs, parse_lib);
+					for_each_path<2>({lib_candidate + ".a", lib_candidate + ".so"}, path, search_dirs, parse_lib);
 				} else { //assume it's a file name
 					for_each_path(lib_file, path, search_dirs, parse_lib);
 				}
@@ -256,34 +271,20 @@ void Symbol::narrow_to_base_name(std::string_view &name) {
 }
 
 std::string Symbol::demangled_name(std::string mangled_name) {
-	constexpr bool using_builtin_demangler = true;
-	if constexpr (using_builtin_demangler) {
-		int status = 1;
-		std::unique_ptr<char, decltype([](char *s) { std::free(s); })> p{abi::__cxa_demangle(mangled_name.c_str(), nullptr, nullptr, &status)};
-		if (status) {
-			const char *error;
-			switch (status) {
-				case -1:
-					error = "memory allocation failed";
-					break;
-				case -2:
-					//error = "invalid mangled name";
-					return mangled_name;
-				case -3:
-					error = "invalid argument";
-					break;
-				default:
-					error = "unknown error";
-					break;
-			}
-			throw std::runtime_error{std::format("Failed demangling '{}' because {}", mangled_name, error)};
-		}
-		return p.get();
-	} else {
+	if (mangled_name.size() < 3) {
+		return mangled_name;
+	}
+	if (mangled_name[0] != '_' or mangled_name[1] != 'Z') {
+		return mangled_name;
+	}
+	int status = 1;
+	std::unique_ptr<char, decltype([](char *s) { std::free(s); })> p{abi::__cxa_demangle(mangled_name.c_str(), nullptr, nullptr, &status)};
+	if (status) {
 		auto result = get_output_from_command("llvm-cxxfilt-21", {mangled_name});
 		result.pop_back();
 		return result;
 	}
+	return p.get();
 }
 
 std::ostream &operator<<(std::ostream &os, const Symbol &symbol) {

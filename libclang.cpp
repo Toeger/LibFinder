@@ -27,14 +27,14 @@ struct Resource<Pointer_t, creator, disposer, Pointer_t (*)(Args...), void (*)(P
 	}
 };
 
-struct Libclang::Libclang_Pimpl {
+struct Libclang::Pimpl {
 	Resource<CXIndex, clang_createIndex, clang_disposeIndex> index;
 	Resource<CXTranslationUnit, clang_parseTranslationUnit, clang_disposeTranslationUnit> translation_unit;
 };
 
 Libclang::Libclang(std::filesystem::path path_, std::filesystem::path compile_commands_json_directory)
 	: path{std::move(path_)}
-	, pimpl{std::make_unique<Libclang_Pimpl>()} {
+	, pimpl{std::make_unique<Pimpl>()} {
 	pimpl->index = {0, 0};
 	const char *args[] = {
 		"-std=c++26", //TODO: read standard from compile_commands_json_directory
@@ -198,9 +198,6 @@ void Libclang::get_locations(std::map<std::string_view /*mangled_name*/, Symbol_
 						const auto mangled = Clang_String{clang_Cursor_getMangling(ref_cursor)};
 						if (not mangled or not *mangled) {
 							break;
-						}
-						if (mangled.to_string_view() == "_ZNSt7__cxx1118basic_stringstreamIcSt11char_traitsIcESaIcEED1Ev") {
-							std::cout << "";
 						}
 						if constexpr (false) {
 							std::cout << "Mangled name: " << Color::symbol(mangled) << " at " << get_location(current_cursor) << '\n';

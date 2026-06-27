@@ -8,7 +8,7 @@
 #include <ostream>
 
 struct Libclang {
-	struct Libclang_Pimpl;
+	struct Pimpl;
 
 	struct Location {
 		std::filesystem::path path{};
@@ -47,7 +47,7 @@ struct Libclang {
 	void get_locations(std::map<std::string_view /*mangled_name*/, Symbol_Location> &name_locations);
 
 	std::filesystem::path path;
-	std::unique_ptr<Libclang_Pimpl> pimpl;
+	std::unique_ptr<Pimpl> pimpl;
 };
 
 template <>

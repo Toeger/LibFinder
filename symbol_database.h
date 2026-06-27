@@ -17,14 +17,14 @@ namespace Symbol_database {
 
 	struct Writer {
 		Writer(std::size_t libraries);
-		void add(std::string symbol, std::size_t lib_id);
+		void add(std::string mangled_symbol, std::size_t lib_id);
 		Write_stats write(std::filesystem::path path, const std::vector<std::string> &libraries);
 		void merge(Writer &&other);
-		std::size_t size() const;
+		std::size_t symbol_count() const;
 
 		private:
-		std::vector<std::vector<std::pair<std::string /*symbol*/, std::size_t /*libindex*/>>> data{{}};
-		std::uint8_t lib_index_size;
+		std::vector<std::vector<std::pair<std::string /*mangled_symbol*/, std::size_t /*libindex*/>>> mangled_data{{}};
+		std::uint8_t sizeof_Lib_Index;
 	};
 
 	struct Reader {
@@ -32,27 +32,25 @@ namespace Symbol_database {
 		~Reader();
 		Reader(Reader &&other);
 		Reader &operator=(Reader &&other);
-		std::vector<std::filesystem::path> libraries_from_symbol(std::string_view symbol) const;
-		std::map<std::string_view, std::vector<std::filesystem::path>> libraries_from_prefix(std::string_view symbol_prefixes) const;
+		std::vector<std::filesystem::path> libraries_from_symbol(std::string symbol) const;
+		std::map<std::string_view, std::vector<std::filesystem::path>> libraries_from_prefix(std::string symbol_prefixes) const;
 		bool is_outdated() const;
 
 		private:
-		struct Symbol_db_iterator;
+		struct Symbol_Db_Iterator;
 		std::string_view get_symbol(std::size_t index);
-		std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> get_libraries(Symbol_db_iterator begin,
-																												 Symbol_db_iterator end) const;
-		Symbol_db_iterator begin() const;
-		Symbol_db_iterator end() const;
+		std::map<std::string_view /*mangled_symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> get_libraries(Symbol_Db_Iterator begin,
+																														 Symbol_Db_Iterator end) const;
+		Symbol_Db_Iterator begin() const;
+		Symbol_Db_Iterator end() const;
 
-		const std::uint8_t *data;
-		std::size_t data_size;
-		std::size_t symbols{};
-		std::size_t libs{};
-		const std::uint8_t *symbol_db;
-		const std::uint8_t *symbol_indexes;
-		const std::uint8_t *lib_db;
+		std::basic_string_view<uint8_t> data;
+
+		std::uint32_t symbol_count{};
+		std::uint8_t sizeof_Lib_Index;
+		std::size_t lib_count{};
+		const std::uint8_t *mangled_symbol_indexes;
 		const std::uint8_t *lib_indexes;
-		std::uint8_t lib_index_size;
 		bool outdated;
 	};
 }; // namespace Symbol_database
