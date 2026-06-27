@@ -53,6 +53,12 @@ namespace {
 #pragma clang diagnostic pop
 #endif
 
+static auto make_sure(bool condition) {
+	if (not condition) {
+		throw std::runtime_error{"Invalid database format"};
+	}
+};
+
 template <class T>
 static void leak(T &t) {
 	alignas(T) char buffer[sizeof t];
@@ -65,6 +71,41 @@ using File_Offset = std::uint32_t;
 void Symbol_database::Writer::add(std::string mangled_symbol, std::size_t lib_id) {
 	mangled_data.front().push_back({std::move(mangled_symbol), lib_id});
 }
+
+template <class Internal>
+	requires(std::is_arithmetic_v<Internal>)
+struct Cast {
+	template <class From>
+		requires(not std::is_same_v<From, Internal>)
+	Cast(From v)
+		: value{Cast{v}} {}
+	template <class From>
+		requires(std::is_same_v<From, Internal>)
+	Cast(From v)
+		: value{v} {}
+
+	template <class To>
+		requires(std::is_arithmetic_v<To>)
+	operator To() && {
+		if constexpr (std::is_signed_v<Internal> and std::is_unsigned_v<To>) {
+			make_sure(value >= 0);
+			make_sure(static_cast<std::make_unsigned_t<decltype(value)>>(value) <= std::numeric_limits<To>::max());
+		} else if constexpr (std::is_unsigned_v<Internal> and std::is_signed_v<To>) {
+			make_sure(value <= std::numeric_limits<To>::max());
+		} else {
+			make_sure(std::numeric_limits<To>::min() <= value and std::numeric_limits<To>::max() >= value);
+		}
+		return static_cast<To>(value);
+	}
+
+	Internal operator+() const {
+		return value;
+	}
+	Internal value;
+};
+
+template <class T>
+Cast(T) -> Cast<T>;
 
 Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
 	Symbol_database::Write_stats stats;
@@ -84,9 +125,9 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	file.write(magic_number, sizeof magic_number); //magic_number
 
 	const auto &install_status = get_install_status();
-	file.write(install_status.data(), install_status.size() + 1); //install_status
+	file.write(install_status.data(), Cast{install_status.size() + 1}); //install_status
 
-	std::uint32_t symbol_count = mangled_symbol_db.size();
+	std::uint32_t symbol_count = Cast{mangled_symbol_db.size()};
 	file.write(reinterpret_cast<const char *>(&symbol_count), sizeof(std::uint32_t)); //symbol_count
 
 	file << sizeof_Lib_Index; //sizeof_Lib_Index
@@ -96,46 +137,46 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	//seek past, fill out later
 	const auto indexes_start = file.tellp();
-	file.seekp(sizeof(File_Offset) * (symbol_count + 1) //mangled_symbol_indexes
-				   + sizeof(File_Offset) * lib_count,	//lib_indexes
+	file.seekp(Cast{sizeof(File_Offset) * (symbol_count + 1) //mangled_symbol_indexes
+					+ sizeof(File_Offset) * lib_count},		 //lib_indexes
 			   std::ios_base::cur);
 
 	//mangled_symbol_db
-	stats.symbols_db_size = +file.tellp();
+	stats.symbols_db_size = Cast{+file.tellp()};
 	std::vector<File_Offset> mangled_symbol_indexes;
 	mangled_symbol_indexes.reserve(symbol_count + 1);
 	for (const auto &[symbol, libindexes] : mangled_symbol_db) {
-		mangled_symbol_indexes.push_back(+file.tellp());
-		file.write(symbol.c_str(), symbol.size() + 1);
-		file.write(libindexes.c_str(), libindexes.size());
+		mangled_symbol_indexes.push_back(Cast{+file.tellp()});
+		file.write(symbol.c_str(), Cast{symbol.size() + 1});
+		file.write(libindexes.c_str(), Cast{libindexes.size()});
 	}
-	mangled_symbol_indexes.push_back(+file.tellp());
+	mangled_symbol_indexes.push_back(Cast{+file.tellp()});
 	assert(mangled_symbol_indexes.size() == symbol_count + 1);
-	stats.symbols_db_size = +file.tellp() - stats.symbols_db_size;
+	stats.symbols_db_size = +Cast<std::size_t>{+file.tellp()} - stats.symbols_db_size;
 
 	//lib_db
-	stats.libs_db_size = +file.tellp();
+	stats.libs_db_size = Cast{+file.tellp()};
 	std::vector<File_Offset> lib_indexes;
 	lib_indexes.reserve(libraries.size());
 	for (auto &lib : libraries) {
-		lib_indexes.push_back(+file.tellp());
-		file.write(lib.data(), lib.size() + 1);
+		lib_indexes.push_back(Cast{+file.tellp()});
+		file.write(lib.data(), Cast{lib.size() + 1});
 	}
-	stats.libs_db_size = +file.tellp() - stats.libs_db_size;
+	stats.libs_db_size = +Cast<std::size_t>{+file.tellp()} - stats.libs_db_size;
 
 	//end of file, now rewind to fill indexes
 	file.seekp(indexes_start, std::ios_base::beg);
 
-	stats.symbols_index_size = +file.tellp();
+	stats.symbols_index_size = Cast{+file.tellp()};
 
 	//mangled_symbol_indexes
-	file.write(reinterpret_cast<char *>(mangled_symbol_indexes.data()), mangled_symbol_indexes.size() * sizeof(File_Offset));
-	stats.symbols_index_size = +file.tellp() - stats.symbols_index_size;
+	file.write(reinterpret_cast<char *>(mangled_symbol_indexes.data()), Cast{mangled_symbol_indexes.size() * sizeof(File_Offset)});
+	stats.symbols_index_size = +Cast<std::size_t>{+file.tellp()} - stats.symbols_index_size;
 
 	//lib_indexes
-	stats.libs_index_size = +file.tellp();
-	file.write(reinterpret_cast<char *>(lib_indexes.data()), lib_indexes.size() * sizeof(File_Offset));
-	stats.libs_index_size = +file.tellp() - stats.libs_index_size;
+	stats.libs_index_size = Cast{+file.tellp()};
+	file.write(reinterpret_cast<char *>(lib_indexes.data()), Cast{lib_indexes.size() * sizeof(File_Offset)});
+	stats.libs_index_size = +Cast<std::size_t>{+file.tellp()} - stats.libs_index_size;
 
 	PROF << "to write results to disk";
 
@@ -183,9 +224,34 @@ static auto to_nullterminated_sv(std::basic_string_view<uint8_t> usv, std::size_
 	return std::string_view{reinterpret_cast<const char *>(&usv.front()), reinterpret_cast<const char *>(&usv.back())};
 }
 
-static auto make_sure(bool condition) {
-	if (not condition) {
-		throw std::runtime_error{"Invalid database format"};
+struct String_View_Reader {
+	std::basic_string_view<uint8_t> &cur;
+	operator std::uint32_t() {
+		std::uint32_t retval{};
+		make_sure(cur.size() >= sizeof retval);
+		for (std::size_t i = 0; i < sizeof retval; i++) {
+			retval <<= 8;
+			retval |= cur[0];
+			cur.remove_prefix(1);
+		}
+		return retval;
+	}
+	operator std::uint8_t() {
+		std::uint8_t retval;
+		make_sure(cur.size() >= sizeof retval);
+		retval = cur[0];
+		cur.remove_prefix(1);
+		return retval;
+	}
+	std::size_t operator()(const std::size_t size) {
+		std::uint32_t retval{};
+		make_sure(cur.size() >= size);
+		for (std::size_t i = 0; i < size; i++) {
+			retval <<= 8;
+			retval |= cur[0];
+			cur.remove_prefix(1);
+		}
+		return retval;
 	}
 };
 
@@ -197,30 +263,8 @@ Symbol_database::Reader::Reader(std::filesystem::path path) {
 	auto cur = data;
 
 	auto cur_sv = [&cur] { return to_nullterminated_sv(cur); };
-	struct {
-		std::basic_string_view<uint8_t> &cur;
-		operator std::uint32_t() {
-			std::uint32_t retval;
-			make_sure(cur.size() >= sizeof retval);
-			std::memcpy(&retval, &cur.front(), sizeof retval);
-			cur.remove_prefix(sizeof retval);
-			return retval;
-		}
-		operator std::uint8_t() {
-			std::uint8_t retval;
-			make_sure(cur.size() >= sizeof retval);
-			std::memcpy(&retval, &cur.front(), sizeof retval);
-			cur.remove_prefix(sizeof retval);
-			return retval;
-		}
-		std::size_t operator()(const std::size_t size) {
-			std::uint32_t retval;
-			make_sure(cur.size() >= size);
-			std::memcpy(&retval, &cur.front(), size);
-			cur.remove_prefix(size);
-			return retval;
-		}
-	} cur_to{cur};
+
+	String_View_Reader cur_to{cur};
 
 	//magic_number
 	if (cur_sv() != magic_number) {
