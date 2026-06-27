@@ -66,7 +66,7 @@ const std::string &get_install_status() {
 		if (not dpkg_version.empty() and dpkg_version.front() == '1') {
 			retval = get_output_from_command("ls -l /var/log/dpkg* | md5sum", {});
 		}
-		return retval;
+		return retval + "/" __DATE__ "/" __TIME__;
 	}();
 	return status;
 }
