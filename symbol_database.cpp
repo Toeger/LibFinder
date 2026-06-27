@@ -31,7 +31,7 @@ namespace {
 
 		const char magic_number[12] = "LibFinderV1";   //if it doesn't match file content, this documentation does not apply
 		char install_status[] = {variable};			   //the state of the packages when the database was created, null-terminated
-		const std::uint32_t symbol_count{variable};	   //number of symbols, mangled and demangled
+		const std::uint32_t symbol_count{variable};	   //number of demangled symbols
 		const std::uint8_t sizeof_Lib_Index{variable}; //number of bytes of Lib_Index type
 		const Lib_Index lib_count{variable};		   //number of lib_db and lib_indexes entries
 
@@ -230,8 +230,7 @@ struct String_View_Reader {
 		std::uint32_t retval{};
 		make_sure(cur.size() >= sizeof retval);
 		for (std::size_t i = 0; i < sizeof retval; i++) {
-			retval <<= 8;
-			retval |= cur[0];
+			retval |= (cur[0] + 0u) << (8 * i);
 			cur.remove_prefix(1);
 		}
 		return retval;
@@ -247,8 +246,7 @@ struct String_View_Reader {
 		std::uint32_t retval{};
 		make_sure(cur.size() >= size);
 		for (std::size_t i = 0; i < size; i++) {
-			retval <<= 8;
-			retval |= cur[0];
+			retval |= (cur[0] + 0u) << (8 * i);
 			cur.remove_prefix(1);
 		}
 		return retval;
@@ -289,8 +287,9 @@ Symbol_database::Reader::Reader(std::filesystem::path path) {
 	lib_count = cur_to(sizeof_Lib_Index);
 
 	//mangled_symbol_indexes
-	mangled_symbol_indexes = cur.data();
-	cur.remove_prefix(sizeof(File_Offset) * (symbol_count + 1));
+	mangled_symbol_indexes = cur;
+	mangled_symbol_indexes.remove_suffix(mangled_symbol_indexes.size() - sizeof(File_Offset) * (symbol_count + 1));
+	cur.remove_prefix(mangled_symbol_indexes.size());
 
 	//lib_indexes
 	lib_indexes = cur.data();
@@ -364,7 +363,10 @@ struct Symbol_database::Reader::Symbol_Db_Iterator {
 	auto operator<=>(const Symbol_Db_Iterator &) const = default;
 	File_Offset offset() const {
 		File_Offset result;
-		std::memcpy(&result, reader->mangled_symbol_indexes + index * sizeof(File_Offset), sizeof(File_Offset));
+		auto offset_data = reader->mangled_symbol_indexes;
+		offset_data.remove_prefix(index * sizeof(File_Offset));
+		String_View_Reader svr{offset_data};
+		result = svr;
 		return result;
 	}
 
@@ -417,10 +419,15 @@ bool Symbol_database::Reader::is_outdated() const {
 	return outdated;
 }
 
-std::string_view Symbol_database::Reader::get_symbol(std::size_t index) {
+std::string_view Symbol_database::Reader::get_symbol(std::size_t index) const {
 	File_Offset offset;
-	std::memcpy(&offset, mangled_symbol_indexes + index * sizeof(File_Offset), sizeof(File_Offset));
-	return {reinterpret_cast<const char *>(data.data() + offset), sizeof(File_Offset)};
+	auto offset_data = mangled_symbol_indexes;
+	offset_data.remove_prefix(index * sizeof(File_Offset));
+	String_View_Reader svr{offset_data};
+	offset = svr;
+	auto symbol_data = data;
+	symbol_data.remove_prefix(offset);
+	return to_nullterminated_sv(symbol_data);
 }
 
 std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end) const {

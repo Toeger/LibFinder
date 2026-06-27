@@ -38,7 +38,7 @@ namespace Symbol_database {
 
 		private:
 		struct Symbol_Db_Iterator;
-		std::string_view get_symbol(std::size_t index);
+		std::string_view get_symbol(std::size_t index) const;
 		std::map<std::string_view /*mangled_symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> get_libraries(Symbol_Db_Iterator begin,
 																														 Symbol_Db_Iterator end) const;
 		Symbol_Db_Iterator begin() const;
@@ -49,7 +49,7 @@ namespace Symbol_database {
 		std::uint32_t symbol_count{};
 		std::uint8_t sizeof_Lib_Index;
 		std::size_t lib_count{};
-		const std::uint8_t *mangled_symbol_indexes;
+		std::basic_string_view<uint8_t> mangled_symbol_indexes;
 		const std::uint8_t *lib_indexes;
 		bool outdated;
 	};
