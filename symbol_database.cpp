@@ -292,7 +292,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path) {
 	cur.remove_prefix(mangled_symbol_indexes.size());
 
 	//lib_indexes
-	lib_indexes = cur.data();
+	lib_indexes = cur;
 }
 
 Symbol_database::Reader::~Reader() {
@@ -434,18 +434,22 @@ std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::
 	std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> result;
 	while (begin < end) {
 		auto &found_libs = result[*begin];
-		const std::uint8_t *cur = data.data() + begin.offset();
-		while (*cur++)
-			;
+		auto cur{data};
+		cur.remove_prefix(begin.offset());
+		const auto pos = cur.find('\0');
+		make_sure(pos != cur.npos);
+		cur.remove_prefix(pos + 1);
 		++begin;
-		const auto end_pos = data.data() + begin.offset();
-		while (cur < end_pos) {
-			std::size_t lib_index{};
-			std::memcpy(&lib_index, cur, sizeof_Lib_Index);
+		cur.remove_suffix(data.size() - begin.offset());
+		while (not cur.empty()) {
+			std::size_t lib_index = String_View_Reader{cur}(sizeof_Lib_Index);
 			File_Offset lib_offset;
-			std::memcpy(&lib_offset, lib_indexes + lib_index * sizeof(File_Offset), sizeof(File_Offset));
-			found_libs.push_back(to_nullterminated_sv(data.data() + lib_offset));
-			cur += sizeof_Lib_Index;
+			auto svr{lib_indexes};
+			svr.remove_prefix(lib_index * sizeof(File_Offset));
+			lib_offset = String_View_Reader{svr};
+			auto lib{data};
+			lib.remove_prefix(lib_offset);
+			found_libs.push_back(to_nullterminated_sv(lib));
 		}
 	}
 	return result;

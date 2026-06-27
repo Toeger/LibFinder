@@ -50,7 +50,7 @@ namespace Symbol_database {
 		std::uint8_t sizeof_Lib_Index;
 		std::size_t lib_count{};
 		std::basic_string_view<uint8_t> mangled_symbol_indexes;
-		const std::uint8_t *lib_indexes;
+		std::basic_string_view<uint8_t> lib_indexes;
 		bool outdated;
 	};
 }; // namespace Symbol_database
