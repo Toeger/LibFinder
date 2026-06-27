@@ -1,4 +1,5 @@
 #include "generate.h"
+#include "cast.h"
 #include "format.h"
 #include "libparser.h"
 #include "profile.h"
@@ -68,7 +69,7 @@ void update(int jobs) {
 				return;
 			}
 			last_update = last_update.load() + std::chrono::seconds{1};
-			static std::size_t old_lib_indexes[11] = {};
+			static std::array<std::size_t, 11> old_lib_indexes = {};
 			libs_left = library_candidates - lib_index;
 			std::shift_left(std::begin(old_lib_indexes), std::end(old_lib_indexes), 1);
 			old_lib_indexes[std::size(old_lib_indexes) - 1] = lib_index;
@@ -81,9 +82,9 @@ void update(int jobs) {
 			}
 			last_updated_lib_index = old_lib_indexes[std::size(old_lib_indexes) - 1 - updates];
 		}
-		const auto percentage = lib_index * 100. / library_candidates;
+		const double percentage = Cast{lib_index} * 100. / library_candidates;
 		std::print("\033[F\033[2K\033[G{:.2f}% ", percentage);
-		auto estimate = 1. / (lib_index - last_updated_lib_index) * updates * 1. * libs_left;
+		double estimate = 1. / (Cast{lib_index} - last_updated_lib_index) * updates * 1. * libs_left;
 		std::pair<int, char> conversions[] = {
 			{0, 's'},
 			{60, 'm'},
@@ -109,12 +110,12 @@ void update(int jobs) {
 		std::cout << std::endl;
 	};
 
-	auto thread_handler = [&file_paths = std::as_const(file_paths), &handled_libs, library_candidates = std::as_const(library_candidates), &skipped_libs,
+	auto thread_handler = [&cfile_paths = std::as_const(file_paths), &handled_libs, library_candidates_count = std::as_const(library_candidates), &skipped_libs,
 						   &lib_paths] {
-		Symbol_database::Writer symbol_map{library_candidates};
-		for (std::size_t lib_index = handled_libs++; lib_index < std::size(file_paths); lib_index = handled_libs++) {
+		Symbol_database::Writer symbol_map{library_candidates_count};
+		for (std::size_t lib_index = handled_libs++; lib_index < std::size(cfile_paths); lib_index = handled_libs++) {
 			print_status_update(lib_index);
-			auto libs = parse_lib(file_paths[lib_index], false, lib_paths);
+			auto libs = parse_lib(cfile_paths[lib_index], false, lib_paths);
 			if (libs.empty()) {
 				++skipped_libs;
 				continue;
