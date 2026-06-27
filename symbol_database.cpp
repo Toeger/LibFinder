@@ -76,17 +76,18 @@ template <class Internal>
 	requires(std::is_arithmetic_v<Internal>)
 struct Cast {
 	template <class From>
-		requires(not std::is_same_v<From, Internal>)
-	Cast(From v)
-		: value{Cast{v}} {}
-	template <class From>
 		requires(std::is_same_v<From, Internal>)
 	Cast(From v)
 		: value{v} {}
 
+	template <class From>
+		requires(not std::is_same_v<From, Internal>)
+	Cast(From v)
+		: value{Cast{v}} {}
+
 	template <class To>
 		requires(std::is_arithmetic_v<To>)
-	operator To() && {
+	operator To() {
 		if constexpr (std::is_signed_v<Internal> and std::is_unsigned_v<To>) {
 			make_sure(value >= 0);
 			make_sure(static_cast<std::make_unsigned_t<decltype(value)>>(value) <= std::numeric_limits<To>::max());
@@ -106,6 +107,32 @@ struct Cast {
 
 template <class T>
 Cast(T) -> Cast<T>;
+
+#define X(OP)                                                                                                                                                  \
+	template <class T, class U>                                                                                                                                \
+	auto operator OP(Cast<T> lhs, U rhs) {                                                                                                                     \
+		using Common_Type = std::common_type_t<T, U>;                                                                                                          \
+		return Cast{static_cast<Common_Type>(lhs) OP static_cast<Common_Type>(rhs)};                                                                           \
+	}
+X(+)
+X(-)
+X(*)
+X(/)
+#undef X
+#define X(OP)                                                                                                                                                  \
+	template <class T, class U>                                                                                                                                \
+	auto operator OP(Cast<T> lhs, U rhs) {                                                                                                                     \
+		using Common_Type = std::common_type_t<T, U>;                                                                                                          \
+		return static_cast<Common_Type>(lhs) OP static_cast<Common_Type>(rhs);                                                                                 \
+	}
+X(<)
+X(>)
+X(<=)
+X(>=)
+X(==)
+X(!=)
+X(<=>)
+#undef X
 
 Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
 	Symbol_database::Write_stats stats;
@@ -152,7 +179,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	}
 	mangled_symbol_indexes.push_back(Cast{+file.tellp()});
 	assert(mangled_symbol_indexes.size() == symbol_count + 1);
-	stats.symbols_db_size = +Cast<std::size_t>{+file.tellp()} - stats.symbols_db_size;
+	stats.symbols_db_size = Cast<std::size_t>{+file.tellp()} - stats.symbols_db_size;
 
 	//lib_db
 	stats.libs_db_size = Cast{+file.tellp()};
@@ -162,7 +189,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 		lib_indexes.push_back(Cast{+file.tellp()});
 		file.write(lib.data(), Cast{lib.size() + 1});
 	}
-	stats.libs_db_size = +Cast<std::size_t>{+file.tellp()} - stats.libs_db_size;
+	stats.libs_db_size = Cast<std::size_t>{+file.tellp()} - stats.libs_db_size;
 
 	//end of file, now rewind to fill indexes
 	file.seekp(indexes_start, std::ios_base::beg);
@@ -171,12 +198,12 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	//mangled_symbol_indexes
 	file.write(reinterpret_cast<char *>(mangled_symbol_indexes.data()), Cast{mangled_symbol_indexes.size() * sizeof(File_Offset)});
-	stats.symbols_index_size = +Cast<std::size_t>{+file.tellp()} - stats.symbols_index_size;
+	stats.symbols_index_size = Cast<std::size_t>{+file.tellp()} - stats.symbols_index_size;
 
 	//lib_indexes
 	stats.libs_index_size = Cast{+file.tellp()};
 	file.write(reinterpret_cast<char *>(lib_indexes.data()), Cast{lib_indexes.size() * sizeof(File_Offset)});
-	stats.libs_index_size = +Cast<std::size_t>{+file.tellp()} - stats.libs_index_size;
+	stats.libs_index_size = Cast<std::size_t>{+file.tellp()} - stats.libs_index_size;
 
 	PROF << "to write results to disk";
 
@@ -443,10 +470,9 @@ std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::
 		cur.remove_suffix(data.size() - begin.offset());
 		while (not cur.empty()) {
 			std::size_t lib_index = String_View_Reader{cur}(sizeof_Lib_Index);
-			File_Offset lib_offset;
 			auto svr{lib_indexes};
 			svr.remove_prefix(lib_index * sizeof(File_Offset));
-			lib_offset = String_View_Reader{svr};
+			File_Offset lib_offset = String_View_Reader{svr};
 			auto lib{data};
 			lib.remove_prefix(lib_offset);
 			found_libs.push_back(to_nullterminated_sv(lib));
