@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ostream>
 #include <stdexcept>
 #include <type_traits>
 
@@ -35,9 +36,10 @@ struct Cast {
 		return static_cast<To>(value);
 	}
 
-	Internal operator+() const {
-		return value;
+	auto operator+() const {
+		return Cast<decltype(+value)>(+value);
 	}
+
 	Internal value;
 };
 
@@ -52,6 +54,11 @@ Cast(T) -> Cast<T>;
 	}                                                                                                                                                          \
 	template <class T, class U>                                                                                                                                \
 	auto operator OP(T lhs, Cast<U> rhs) {                                                                                                                     \
+		using Common_Type = std::common_type_t<T, U>;                                                                                                          \
+		return Cast{static_cast<Common_Type>(lhs) OP static_cast<Common_Type>(rhs)};                                                                           \
+	}                                                                                                                                                          \
+	template <class T, class U>                                                                                                                                \
+	auto operator OP(Cast<T> lhs, Cast<U> rhs) {                                                                                                               \
 		using Common_Type = std::common_type_t<T, U>;                                                                                                          \
 		return Cast{static_cast<Common_Type>(lhs) OP static_cast<Common_Type>(rhs)};                                                                           \
 	}
@@ -74,3 +81,16 @@ X(==)
 X(!=)
 X(<=>)
 #undef X
+
+template <class T>
+std::ostream &operator<<(std::ostream &os, Cast<T> v) {
+	return os << v.value;
+}
+
+template <class T, class Char_t>
+struct std::formatter<Cast<T>, Char_t> : std::formatter<T, Char_t> {
+	template <class FmtContext>
+	FmtContext::iterator format(Cast<T> v, FmtContext &ctx) const {
+		return std::formatter<T, Char_t>::format(v.value, ctx);
+	}
+};
