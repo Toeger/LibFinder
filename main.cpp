@@ -1,4 +1,5 @@
 #include "main.h"
+#include "format.h"
 #include "generate.h"
 #include "libparser.h"
 #include "profile.h"
@@ -89,8 +90,9 @@ int main(int argc, char *argv[]) try {
 			std::cout << symbol << '\n';
 			std::sort(std::begin(libs), std::end(libs));
 			libs.erase(std::unique(std::begin(libs), std::end(libs)), std::end(libs));
-			for (auto &lib : libs) {
-				std::cout << '\t' << lib.string() << '\n';
+			for (std::size_t i = 0; i < std::size(libs); i++) {
+				std::cout << '\t' << diff_highlight(libs[std::min(i, i - 1)].string(), libs[i].string(), libs[std::min(i + 1, std::size(libs) - 1)].string())
+						  << '\n';
 			}
 		}
 		return 0; //avoid double newline at end of output
