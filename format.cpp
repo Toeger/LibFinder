@@ -38,7 +38,7 @@ std::string diff_highlight(std::string_view text_before, std::string text, std::
 		}
 
 		bool overlaps(const Diff &other) const {
-			return start > other.end or other.start > end;
+			return start <= other.end and other.start <= end;
 		}
 
 		Diff combined_with(const Diff &other) const {
@@ -62,7 +62,7 @@ std::string diff_highlight(std::string_view text_before, std::string text, std::
 		}
 		return {diff_starts.second, diff_ends.second};
 	};
-	if (text == "/usr/lib/x86_64-linux-gnu/libc.so") {
+	if (text == "/usr/lib/gcc/x86_64-linux-gnu/15/libstdc++exp.a") {
 		text += "";
 	}
 	auto diff1 = get_diffs(text, text_before);
@@ -73,7 +73,7 @@ std::string diff_highlight(std::string_view text_before, std::string text, std::
 	if (diff1 and diff2) {
 		if (diff1.overlaps(diff2)) {
 			diff1 = diff1.combined_with(diff2);
-			diff1 = {};
+			diff2 = {};
 		} else if (diff1.start > diff2.start) {
 			std::swap(diff1, diff2);
 		}

@@ -82,6 +82,8 @@ class Color {
 	} static constexpr italic{};
 	struct Underline {
 	} static constexpr underline{};
+
+	static thread_local bool suppress;
 };
 
 std::ostream &operator<<(std::ostream &os, Color color);
@@ -112,7 +114,7 @@ struct std::formatter<Color, char> {
 	FmtContext::iterator format(const Color &color, FmtContext &ctx) const {
 		switch (color_format) {
 			case Color_format::ansi:
-				return std::format_to(ctx.out(), "\033[38;2;{};{};{}m", color.r, color.g, color.b);
+				return Color::suppress ? ctx.out() : std::format_to(ctx.out(), "\033[38;2;{};{};{}m", color.r, color.g, color.b);
 			case Color_format::hex:
 				return std::format_to(ctx.out(), "{:02X}{:02X}{:02X}", color.r, color.g, color.b);
 		}
@@ -134,7 +136,7 @@ struct std::formatter<Color, char> {
                                                                                                                                                                \
 		template <class FmtContext>                                                                                                                            \
 		FmtContext::iterator format(const TYPE &, FmtContext &ctx) const {                                                                                     \
-			return std::format_to(ctx.out(), "\033[" CODE "m");                                                                                                \
+			return Color::suppress ? ctx.out() : std::format_to(ctx.out(), "\033[" CODE "m");                                                                  \
 		}                                                                                                                                                      \
 	};
 

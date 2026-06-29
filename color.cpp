@@ -1,5 +1,12 @@
 #include "color.h"
+
 #include <format>
+#ifdef __linux__
+#include <unistd.h>
+thread_local bool Color::suppress = not isatty(STDOUT_FILENO);
+#else
+thread_local bool Color::suppress = false;
+#endif
 
 Color Color::warning = {{.rgb = 0xBBBB44}};
 Color Color::error = {{.rgb = 0xBB4444}};
@@ -10,7 +17,7 @@ Color Color::line = file;
 Color Color::command = {{.rgb = 0x888844}};
 
 std::string Color::operator()(std::string_view sv) const {
-	return std::format("{}{}{}", *this, sv, Color::reset);
+	return suppress ? "" : std::format("{}{}{}", *this, sv, Color::reset);
 }
 
 std::ostream &operator<<(std::ostream &os, Color color) {
