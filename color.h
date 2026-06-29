@@ -71,10 +71,17 @@ class Color {
 	static const Color white, silver, gray, black, red, maroon, yellow, olive, lime, green, aqua, teal, blue, navy, fuchsia, purple;
 
 	//usage colors
-	static Color warning, error, symbol, symbol_type, file, line, command;
+	static Color warning, error, symbol, symbol_type, file, line, command, pathdiff;
 
+	//other
 	struct Reset {
 	} static constexpr reset{};
+	struct Bold {
+	} static constexpr bold{};
+	struct Italic {
+	} static constexpr italic{};
+	struct Underline {
+	} static constexpr underline{};
 };
 
 std::ostream &operator<<(std::ostream &os, Color color);
@@ -113,26 +120,29 @@ struct std::formatter<Color, char> {
 	}
 };
 
-template <>
-struct std::formatter<Color::Reset, char> {
-	template <class ParseContext>
-	constexpr ParseContext::iterator parse(ParseContext &ctx) {
-		std::string arg;
-		auto it = ctx.begin();
-		for (; it != ctx.end() and *it != '}'; ++it) {
-			arg.push_back(*it);
-		}
-		if (arg != "") {
-			throw std::format_error{"Invalid format specifier \"" + arg + "\" for Color::Reset"};
-		}
-		return it;
-	}
+#define X(TYPE, CODE)                                                                                                                                          \
+	template <>                                                                                                                                                \
+	struct std::formatter<TYPE, char> {                                                                                                                        \
+		template <class ParseContext>                                                                                                                          \
+		constexpr ParseContext::iterator parse(ParseContext &ctx) {                                                                                            \
+			auto begin = ctx.begin();                                                                                                                          \
+			if (begin != ctx.end() and *begin != '}') {                                                                                                        \
+				throw std::format_error{"Invalid format specifier for " #TYPE};                                                                                \
+			}                                                                                                                                                  \
+			return begin;                                                                                                                                      \
+		}                                                                                                                                                      \
+                                                                                                                                                               \
+		template <class FmtContext>                                                                                                                            \
+		FmtContext::iterator format(const TYPE &, FmtContext &ctx) const {                                                                                     \
+			return std::format_to(ctx.out(), "\033[" CODE "m");                                                                                                \
+		}                                                                                                                                                      \
+	};
 
-	template <class FmtContext>
-	FmtContext::iterator format(const Color::Reset &, FmtContext &ctx) const {
-		return std::format_to(ctx.out(), "\033[0m");
-	}
-};
+X(Color::Reset, "")
+X(Color::Bold, "1")
+X(Color::Italic, "3")
+X(Color::Underline, "4")
+#undef X
 
 inline constexpr Color Color::white{{.rgb = 0xFFFFFF}};
 inline constexpr Color Color::silver{{.rgb = 0xC0C0C0}};
