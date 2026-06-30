@@ -1,4 +1,6 @@
 #include "main.h"
+#include "cast.h"
+#include "color.h"
 #include "format.h"
 #include "generate.h"
 #include "libparser.h"
@@ -37,10 +39,9 @@ static void handle_linkcommand(std::span<std::filesystem::path> files) {
 
 int main(int argc, char *argv[]) try {
 	boost::program_options::options_description options(
-		"libfinder finds the libraries that define a given symbol.\nRun 'sudo updatedb' to make sure all libs are locatable, create an index with "
-		"'libfinder "
-		"-u' (once every time your libs change) and look up a symbol with 'libfinder -s [symbol]' to get a list of libraries that define "
-		"[symbol].\nParameters");
+		std::format("libfinder finds the libraries that define a given symbol.\nRun {} to make sure all libs are locatable, create an index with "
+					"{} (once every time your libs change) and look up a symbol with {} to get a list of libraries that define [symbol].\nParameters",
+					Color::command("sudo updatedb"), Color::command("libfinder -u"), Color::command("libfinder -s [symbol]")));
 	int jobs = 0;
 	const int hardware_concurrency = std::thread::hardware_concurrency();
 	const auto update_description =
@@ -52,6 +53,8 @@ int main(int argc, char *argv[]) try {
 		("update,u", boost::program_options::value<int>(&jobs)->implicit_value(hardware_concurrency), update_description.c_str()) //
 		("symbol,s", boost::program_options::value<std::string>(), "the symbol to look up")										  //
 		("linkcommand,c", boost::program_options::value<std::vector<std::string>>(), "the files to link")						  //
+		("color", boost::program_options::value<std::string>(),
+		 std::format("Allowed values are {}, {} or {} (default)", Color::command("yes"), Color::command("no"), Color::command("terminal")).c_str()) //
 		;
 	//("output-format,of", boost::program_options::value<std::string>()->default_value("symbol-list"), "Define the output format. Options are \tlist - pr");
 	boost::program_options::variables_map program_args;
@@ -62,6 +65,20 @@ int main(int argc, char *argv[]) try {
 		return -1;
 	}
 	boost::program_options::notify(program_args);
+	if (program_args.contains("color")) {
+		const auto &color = program_args["color"].as<std::string>();
+		if (color == "yes") {
+			Color::suppress = false;
+		} else if (color == "no") {
+			Color::suppress = true;
+		} else if (color == "terminal") {
+			Color::suppress = isatty(STDOUT_FILENO);
+		} else {
+			std::cerr << "Invalid " << Color::command("color") << " argument " << Color::command(color) << ". Allowed values are " << Color::command("yes")
+					  << ", " << Color::command("no") << " and " << Color::command("terminal") << " (default)\n";
+			return -1;
+		}
+	}
 	if (program_args.contains("test")) {
 		for (auto &symbol : parse_lib("/usr/lib/x86_64-linux-gnu/libc.so", false, {})) {
 			std::cout << symbol.mangled_name << '\n';
@@ -99,9 +116,9 @@ int main(int argc, char *argv[]) try {
 	}
 	if (program_args.contains("linkcommand")) {
 		std::vector<std::filesystem::path> files;
-		files.resize(argc - 2);
+		files.resize(Cast{argc} - 2);
 		for (int i = 2; i < argc; i++) {
-			files[i - 2] = argv[i];
+			files.at(Cast{i} - 2) = argv[i];
 		}
 		handle_linkcommand(files);
 		return 0;
