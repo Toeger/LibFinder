@@ -20,7 +20,7 @@ struct Cast {
 	template <class From>
 		requires(not std::is_same_v<From, Internal>)
 	Cast(From v)
-		: value{Cast<From>{v}} {}
+		: value{::Cast{v}} {}
 
 	template <class To>
 		requires(std::is_arithmetic_v<To>)

@@ -54,10 +54,75 @@ namespace {
 #pragma clang diagnostic pop
 #endif
 
-static auto make_sure(bool condition) {
-	if (not condition) {
-		throw std::runtime_error{"Invalid database format"};
+[[noreturn]] [[maybe_unused]] static void exception_error_handler() {
+	throw std::out_of_range{""};
+}
+
+template <std::invocable<> auto error_handler = exception_error_handler>
+struct Extractor {
+	template <std::unsigned_integral T>
+	operator T() {
+		assume(data.size() >= sizeof(T));
+		T retval{};
+		for (std::size_t i = 0; i < sizeof retval; i++) {
+			retval |= (static_cast<std::uint8_t>(data.front()) + 0u) << (8 * i);
+			data.remove_prefix(1);
+		}
+		return retval;
 	}
+
+	std::uint64_t extract_number(std::size_t size) {
+		assume(sizeof(std::uint64_t) >= size);
+		std::uint64_t retval{};
+		for (std::size_t i = 0; i < size; i++) {
+			retval |= (static_cast<std::uint8_t>(data.front()) + 0u) << (8 * i);
+			data.remove_prefix(1);
+		}
+		return retval;
+	}
+
+	operator std::string_view() {
+		std::string_view result{reinterpret_cast<const char *>(&data.front()), reinterpret_cast<const char *>(&data.back())};
+		auto end_pos = result.find('\0');
+		assume(end_pos != result.npos);
+		result.remove_suffix(result.size() - end_pos);
+		data.remove_prefix(end_pos + 1);
+		return result;
+	}
+
+	operator std::filesystem::path() {
+		return std::string_view{*this};
+	}
+
+	[[nodiscard]] Extractor operator[](std::size_t start) {
+		assume(start <= data.size());
+		data.remove_prefix(start);
+		return {data};
+	}
+
+	[[nodiscard]] Extractor operator[](std::size_t start, std::size_t end) {
+		assume(start <= end and end <= data.size());
+		auto result = data.substr(start, end - start);
+		data.remove_prefix(end);
+		return {result};
+	}
+
+	[[nodiscard]] operator bool() const {
+		return not data.empty();
+	}
+
+	[[nodiscard]] operator bool() {
+		return not data.empty();
+	}
+
+	static void assume(bool condition) {
+		if (not condition) {
+			error_handler();
+			std::terminate();
+		}
+	}
+
+	std::basic_string_view<std::byte> data;
 };
 
 template <class T>
@@ -176,89 +241,43 @@ std::size_t Symbol_database::Writer::symbol_count() const {
 	return size;
 }
 
-//static auto to_sv(std::basic_string_view<uint8_t> usv, std::size_t offset = 0) {
-//	usv.remove_prefix(offset);
-//	return std::string_view{reinterpret_cast<const char *>(&usv.front()), reinterpret_cast<const char *>(&usv.back())};
-//}
-
-static auto to_nullterminated_sv(std::basic_string_view<uint8_t> usv, std::size_t offset = 0) {
-	usv.remove_prefix(offset);
-	auto end_pos = usv.find('\0');
-	if (end_pos != usv.npos) {
-		usv.remove_suffix(usv.size() - end_pos - 1);
-	}
-	return std::string_view{reinterpret_cast<const char *>(&usv.front()), reinterpret_cast<const char *>(&usv.back())};
-}
-
-struct String_View_Reader {
-	std::basic_string_view<uint8_t> &cur;
-	operator std::uint32_t() {
-		std::uint32_t retval{};
-		make_sure(cur.size() >= sizeof retval);
-		for (std::size_t i = 0; i < sizeof retval; i++) {
-			retval |= (cur[0] + 0u) << (8 * i);
-			cur.remove_prefix(1);
-		}
-		return retval;
-	}
-	operator std::uint8_t() {
-		std::uint8_t retval;
-		make_sure(cur.size() >= sizeof retval);
-		retval = cur[0];
-		cur.remove_prefix(1);
-		return retval;
-	}
-	std::size_t operator()(const std::size_t size) {
-		std::uint32_t retval{};
-		make_sure(cur.size() >= size);
-		for (std::size_t i = 0; i < size; i++) {
-			retval |= (cur[0] + 0u) << (8 * i);
-			cur.remove_prefix(1);
-		}
-		return retval;
-	}
-};
-
 Symbol_database::Reader::Reader(std::filesystem::path path) {
-	int file = open(path.c_str(), O_RDONLY);
-	const auto data_size = std::filesystem::file_size(path);
-	data = {static_cast<const std::uint8_t *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0)), data_size};
+	const int file = open(path.c_str(), O_RDONLY);
+	const auto seek_result = lseek(file, 0, SEEK_END);
+	if (seek_result == -1) {
+		throw std::runtime_error{std::format("Failed seeking file {} because of errno {}", path, errno)};
+	}
+	const std::size_t data_size = Cast{seek_result};
+	data = {static_cast<const std::byte *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0)), data_size};
 	close(file);
-	auto cur = data;
 
-	auto cur_sv = [&cur] { return to_nullterminated_sv(cur); };
-
-	String_View_Reader cur_to{cur};
+	Extractor ext{data};
 
 	//magic_number
-	if (cur_sv() != magic_number) {
+	if (std::string_view{ext} != magic_number) {
 		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
 	}
-	cur.remove_prefix(sizeof(magic_number));
 
 	//install_status
-	auto install_status = to_nullterminated_sv(cur);
+	std::string_view install_status{ext};
 	if ((outdated = install_status != get_install_status())) {
 		std::println(stderr, "{}: Outdated database, run {}", Color::warning("Warning"), Color::command("libfinder -u"));
 	}
-	cur.remove_prefix(install_status.size() + 1);
 
 	//symbol_count
-	symbol_count = cur_to;
+	symbol_count = ext;
 
 	//sizeof_Lib_Index
-	sizeof_Lib_Index = cur_to;
+	sizeof_Lib_Index = ext;
 
 	//lib_count
-	lib_count = cur_to(sizeof_Lib_Index);
+	lib_count = ext.extract_number(sizeof_Lib_Index);
 
 	//mangled_symbol_indexes
-	mangled_symbol_indexes = cur;
-	mangled_symbol_indexes.remove_suffix(mangled_symbol_indexes.size() - sizeof(File_Offset) * (symbol_count + 1));
-	cur.remove_prefix(mangled_symbol_indexes.size());
+	mangled_symbol_indexes = ext[0, sizeof(File_Offset) * (symbol_count + 1)].data;
 
 	//lib_indexes
-	lib_indexes = cur;
+	lib_indexes = ext.data;
 }
 
 Symbol_database::Reader::~Reader() {
@@ -293,7 +312,7 @@ struct Symbol_database::Reader::Symbol_Db_Iterator {
 	using difference_type = std::ptrdiff_t;
 
 	std::string_view operator*() const {
-		return to_nullterminated_sv(reader->data, offset());
+		return Extractor{reader->data}[offset()];
 	}
 	Symbol_Db_Iterator &operator++() {
 		++index;
@@ -328,12 +347,7 @@ struct Symbol_database::Reader::Symbol_Db_Iterator {
 	}
 	auto operator<=>(const Symbol_Db_Iterator &) const = default;
 	File_Offset offset() const {
-		File_Offset result;
-		auto offset_data = reader->mangled_symbol_indexes;
-		offset_data.remove_prefix(index * sizeof(File_Offset));
-		String_View_Reader svr{offset_data};
-		result = svr;
-		return result;
+		return Extractor{reader->mangled_symbol_indexes}[index * sizeof(File_Offset)];
 	}
 
 	std::size_t index;
@@ -386,35 +400,21 @@ bool Symbol_database::Reader::is_outdated() const {
 }
 
 std::string_view Symbol_database::Reader::get_symbol(std::size_t index) const {
-	File_Offset offset;
-	auto offset_data = mangled_symbol_indexes;
-	offset_data.remove_prefix(index * sizeof(File_Offset));
-	String_View_Reader svr{offset_data};
-	offset = svr;
-	auto symbol_data = data;
-	symbol_data.remove_prefix(offset);
-	return to_nullterminated_sv(symbol_data);
+	File_Offset offset = Extractor{mangled_symbol_indexes}[index * sizeof(File_Offset)];
+	return Extractor{data}[offset];
 }
 
 std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end) const {
 	std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> result;
 	while (begin < end) {
-		auto &found_libs = result[*begin];
-		auto cur{data};
-		cur.remove_prefix(begin.offset());
-		const auto pos = cur.find('\0');
-		make_sure(pos != cur.npos);
-		cur.remove_prefix(pos + 1);
-		++begin;
-		cur.remove_suffix(data.size() - begin.offset());
-		while (not cur.empty()) {
-			std::size_t lib_index = String_View_Reader{cur}(sizeof_Lib_Index);
-			auto svr{lib_indexes};
-			svr.remove_prefix(lib_index * sizeof(File_Offset));
-			File_Offset lib_offset = String_View_Reader{svr};
-			auto lib{data};
-			lib.remove_prefix(lib_offset);
-			found_libs.push_back(to_nullterminated_sv(lib));
+		auto start = begin.offset();
+		begin++;
+		auto ext = Extractor{data}[start, begin.offset()];
+		auto &found_libs = result[ext];
+		while (ext) {
+			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
+			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
+			found_libs.push_back(Extractor{data}[lib_offset]);
 		}
 	}
 	return result;

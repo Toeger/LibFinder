@@ -44,13 +44,12 @@ namespace Symbol_database {
 		Symbol_Db_Iterator begin() const;
 		Symbol_Db_Iterator end() const;
 
-		std::basic_string_view<uint8_t> data;
-
+		std::basic_string_view<std::byte> data;
 		std::uint32_t symbol_count{};
 		std::uint8_t sizeof_Lib_Index;
 		std::size_t lib_count{};
-		std::basic_string_view<uint8_t> mangled_symbol_indexes;
-		std::basic_string_view<uint8_t> lib_indexes;
+		std::basic_string_view<std::byte> mangled_symbol_indexes;
+		std::basic_string_view<std::byte> lib_indexes;
 		bool outdated;
 	};
 }; // namespace Symbol_database
