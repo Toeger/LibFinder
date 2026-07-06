@@ -54,13 +54,9 @@ namespace {
 #pragma clang diagnostic pop
 #endif
 
-[[noreturn]] [[maybe_unused]] static void exception_error_handler() {
-	throw std::out_of_range{""};
-}
-
-template <std::invocable<> auto error_handler = exception_error_handler>
 struct Extractor {
 	template <std::unsigned_integral T>
+		requires(not std::same_as<T, bool>)
 	operator T() {
 		assume(data.size() >= sizeof(T));
 		T retval{};
@@ -111,14 +107,9 @@ struct Extractor {
 		return not data.empty();
 	}
 
-	[[nodiscard]] operator bool() {
-		return not data.empty();
-	}
-
 	static void assume(bool condition) {
 		if (not condition) {
-			error_handler();
-			std::terminate();
+			throw std::out_of_range{""};
 		}
 	}
 
