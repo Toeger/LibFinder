@@ -56,19 +56,13 @@ namespace {
 
 struct Extractor {
 	template <std::unsigned_integral T>
-		requires(not std::same_as<T, bool>)
 	operator T() {
-		assume(data.size() >= sizeof(T));
-		T retval{};
-		for (std::size_t i = 0; i < sizeof retval; i++) {
-			retval |= (static_cast<std::uint8_t>(data.front()) + 0u) << (8 * i);
-			data.remove_prefix(1);
-		}
-		return retval;
+		return static_cast<T>(extract_number(sizeof(T)));
 	}
 
-	std::uint64_t extract_number(std::size_t size) {
+	[[nodiscard]] std::uint64_t extract_number(std::size_t size) {
 		assume(sizeof(std::uint64_t) >= size);
+		assume(data.size() >= size);
 		std::uint64_t retval{};
 		for (std::size_t i = 0; i < size; i++) {
 			retval |= (static_cast<std::uint8_t>(data.front()) + 0u) << (8 * i);
@@ -78,8 +72,8 @@ struct Extractor {
 	}
 
 	operator std::string_view() {
-		std::string_view result{reinterpret_cast<const char *>(&data.front()), reinterpret_cast<const char *>(&data.back())};
-		auto end_pos = result.find('\0');
+		std::string_view result{reinterpret_cast<const char *>(&data.front()), data.size()};
+		const auto end_pos = result.find('\0');
 		assume(end_pos != result.npos);
 		result.remove_suffix(result.size() - end_pos);
 		data.remove_prefix(end_pos + 1);
@@ -98,23 +92,24 @@ struct Extractor {
 
 	[[nodiscard]] Extractor operator[](std::size_t start, std::size_t end) {
 		assume(start <= end and end <= data.size());
-		auto result = data.substr(start, end - start);
+		const auto result = data.substr(start, end - start);
 		data.remove_prefix(end);
 		return {result};
 	}
 
-	[[nodiscard]] operator bool() const {
-		return not data.empty();
-	}
-
 	static void assume(bool condition) {
 		if (not condition) {
-			throw std::out_of_range{""};
+			throw std::out_of_range{"Extractor failed extracting data, invalid input"};
 		}
 	}
 
 	std::basic_string_view<std::byte> data;
 };
+
+template <>
+[[nodiscard]] Extractor::operator bool() {
+	return not data.empty();
+}
 
 template <class T>
 static void leak(T &t) {
@@ -245,7 +240,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path) {
 	Extractor ext{data};
 
 	//magic_number
-	if (std::string_view{ext} != magic_number) {
+	if (std::string_view{ext[0, sizeof magic_number]} != magic_number) {
 		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
 	}
 
