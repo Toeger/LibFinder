@@ -7,14 +7,20 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
-#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <print>
 #include <string>
+#include <utility>
+
+#ifdef __linux__
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#else
+//TODO: Implement Windows version
+#endif
 
 #if __GNUC__
 #pragma GCC diagnostic push
@@ -124,9 +130,57 @@ void Symbol_database::Writer::add(std::string mangled_symbol, std::size_t lib_id
 	mangled_data.front().push_back({std::move(mangled_symbol), lib_id});
 }
 
+struct File_Writer {
+	using Pos_Type = long; //should be std::ostream::pos_type, but that one causes conversion issues
+
+	File_Writer &operator<<(std::string_view sv) {
+		os.write(sv.data(), Cast{sv.size()});
+		return *this;
+	}
+
+	void operator<<(char c) {
+		os << c;
+	}
+
+	void operator<<(std::unsigned_integral auto n)
+		requires(not std::is_same_v<decltype(n), bool>)
+	{
+		write_dynamic(n, sizeof(n));
+	}
+
+	template <class T>
+	void operator<<(std::vector<T> v) {
+		os.write(reinterpret_cast<const char *>(v.data()), Cast{std::size(v)} * sizeof(v.front()));
+	}
+
+	void write_dynamic(std::size_t value, std::size_t size) {
+		os.write(reinterpret_cast<const char *>(&value), Cast{size});
+	}
+
+	Cast<Pos_Type> pos() const {
+		return +os.tellp();
+	}
+
+	void operator+=(Pos_Type pos) {
+		os.seekp(pos, std::ios_base::cur);
+	}
+
+	void operator=(Pos_Type pos) {
+		os.seekp(pos, std::ios_base::beg);
+	}
+
+	operator Pos_Type() const {
+		return os.tellp();
+	}
+
+	std::ostream &os;
+};
+
 Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
 	Symbol_database::Write_stats stats;
 	std::ofstream file{path, std::ios_base::out | std::ios_base::binary};
+	File_Writer writer{file};
+
 	std::map<std::string /*mangled_symbol*/, std::string /*libs*/> mangled_symbol_db;
 
 	for (const auto &list : mangled_data) {
@@ -139,61 +193,60 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	stats.unique_symbols = mangled_symbol_db.size();
 
-	file.write(magic_number, sizeof magic_number); //magic_number
+	writer << magic_number << '\0';
 
-	const auto &install_status = get_install_status();
-	file.write(install_status.data(), Cast{install_status.size() + 1}); //install_status
+	writer << get_install_status() << '\0';
 
 	std::uint32_t symbol_count = Cast{mangled_symbol_db.size()};
-	file.write(reinterpret_cast<const char *>(&symbol_count), sizeof(std::uint32_t)); //symbol_count
+	writer << symbol_count;
 
-	file << sizeof_Lib_Index; //sizeof_Lib_Index
+	writer << sizeof_Lib_Index;
 
 	const auto lib_count = libraries.size();
-	file.write(reinterpret_cast<const char *>(&lib_count), sizeof_Lib_Index); //lib_count
+	writer.write_dynamic(lib_count, sizeof_Lib_Index);
 
 	//seek past, fill out later
-	const auto indexes_start = file.tellp();
-	file.seekp(Cast{sizeof(File_Offset) * (symbol_count + 1) //mangled_symbol_indexes
-					+ sizeof(File_Offset) * lib_count},		 //lib_indexes
-			   std::ios_base::cur);
+	const long indexes_start = writer.pos();
+	std::char_traits<char>::pos_type t;
+	writer += Cast{sizeof(File_Offset)} * (symbol_count + 1) //mangled_symbol_indexes
+			  + sizeof(File_Offset) * lib_count;			 //lib_indexes
 
 	//mangled_symbol_db
-	stats.symbols_db_size = Cast{+file.tellp()};
+	stats.symbols_db_size = writer.pos();
 	std::vector<File_Offset> mangled_symbol_indexes;
 	mangled_symbol_indexes.reserve(symbol_count + 1);
 	for (const auto &[symbol, libindexes] : mangled_symbol_db) {
-		mangled_symbol_indexes.push_back(Cast{+file.tellp()});
-		file.write(symbol.c_str(), Cast{symbol.size() + 1});
-		file.write(libindexes.c_str(), Cast{libindexes.size()});
+		mangled_symbol_indexes.push_back(writer.pos());
+		writer << symbol << '\0';
+		writer << libindexes;
 	}
-	mangled_symbol_indexes.push_back(Cast{+file.tellp()});
+	mangled_symbol_indexes.push_back(writer.pos());
 	assert(mangled_symbol_indexes.size() == symbol_count + 1);
-	stats.symbols_db_size = Cast<std::size_t>{+file.tellp()} - stats.symbols_db_size;
+	stats.symbols_db_size = writer.pos() - stats.symbols_db_size;
 
 	//lib_db
-	stats.libs_db_size = Cast{+file.tellp()};
+	stats.libs_db_size = writer.pos();
 	std::vector<File_Offset> lib_indexes;
 	lib_indexes.reserve(libraries.size());
 	for (auto &lib : libraries) {
-		lib_indexes.push_back(Cast{+file.tellp()});
-		file.write(lib.data(), Cast{lib.size() + 1});
+		lib_indexes.push_back(writer.pos());
+		writer << lib << '\0';
 	}
-	stats.libs_db_size = Cast<std::size_t>{+file.tellp()} - stats.libs_db_size;
+	stats.libs_db_size = writer.pos() - stats.libs_db_size;
 
 	//end of file, now rewind to fill indexes
-	file.seekp(indexes_start, std::ios_base::beg);
+	writer = indexes_start;
 
-	stats.symbols_index_size = Cast{+file.tellp()};
+	stats.symbols_index_size = writer.pos();
 
 	//mangled_symbol_indexes
-	file.write(reinterpret_cast<char *>(mangled_symbol_indexes.data()), Cast{mangled_symbol_indexes.size() * sizeof(File_Offset)});
-	stats.symbols_index_size = Cast<std::size_t>{+file.tellp()} - stats.symbols_index_size;
+	writer << mangled_symbol_indexes;
+	stats.symbols_index_size = writer.pos() - stats.symbols_index_size;
 
 	//lib_indexes
-	stats.libs_index_size = Cast{+file.tellp()};
-	file.write(reinterpret_cast<char *>(lib_indexes.data()), Cast{lib_indexes.size() * sizeof(File_Offset)});
-	stats.libs_index_size = Cast<std::size_t>{+file.tellp()} - stats.libs_index_size;
+	stats.libs_index_size = writer.pos();
+	writer << lib_indexes;
+	stats.libs_index_size = writer.pos() - stats.libs_index_size;
 
 	PROF << "to write results to disk";
 
@@ -228,41 +281,47 @@ std::size_t Symbol_database::Writer::symbol_count() const {
 }
 
 Symbol_database::Reader::Reader(std::filesystem::path path) {
-	const int file = open(path.c_str(), O_RDONLY);
-	const auto seek_result = lseek(file, 0, SEEK_END);
-	if (seek_result == -1) {
-		throw std::runtime_error{std::format("Failed seeking file {} because of errno {}", path, errno)};
+	{
+		const int file = open(path.c_str(), O_RDONLY);
+		if (file == -1) {
+			throw std::runtime_error{std::format("Errno {}: Failed opening file {}", errno, path)};
+		}
+		struct Close {
+			~Close() {
+				close(file);
+			}
+			int file;
+		} const _{file};
+		const auto seek_result = lseek(file, 0, SEEK_END);
+		if (seek_result == -1) {
+			throw std::runtime_error{std::format("Errno {}: Failed seeking file {}", errno, path)};
+		}
+		const std::size_t data_size = Cast{seek_result};
+		data = {static_cast<const std::byte *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0)), data_size};
+		if (data.data() == MAP_FAILED) {
+			throw std::runtime_error{std::format("Errno {}: Failed memory-mapping {}", errno, path)};
+		}
 	}
-	const std::size_t data_size = Cast{seek_result};
-	data = {static_cast<const std::byte *>(mmap(nullptr, data_size, PROT_READ, MAP_PRIVATE, file, 0)), data_size};
-	close(file);
 
-	Extractor ext{data};
+	Extractor ext{std::as_const(data)};
 
-	//magic_number
 	if (std::string_view{ext[0, sizeof magic_number]} != magic_number) {
 		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
 	}
 
-	//install_status
 	std::string_view install_status{ext};
 	if ((outdated = install_status != get_install_status())) {
 		std::println(stderr, "{}: Outdated database, run {}", Color::warning("Warning"), Color::command("libfinder -u"));
 	}
 
-	//symbol_count
 	symbol_count = ext;
 
-	//sizeof_Lib_Index
 	sizeof_Lib_Index = ext;
 
-	//lib_count
 	lib_count = ext.extract_number(sizeof_Lib_Index);
 
-	//mangled_symbol_indexes
 	mangled_symbol_indexes = ext[0, sizeof(File_Offset) * (symbol_count + 1)].data;
 
-	//lib_indexes
 	lib_indexes = ext.data;
 }
 
