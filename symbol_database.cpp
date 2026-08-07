@@ -2,7 +2,7 @@
 #include "cast.h"
 #include "color.h"
 #include "profile.h"
-#include "utility.h"
+#include "system.h"
 
 #include <algorithm>
 #include <cassert>
@@ -176,9 +176,9 @@ struct File_Writer {
 	std::ostream &os;
 };
 
-Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path path, const std::vector<std::string> &libraries) {
+Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path output_file, const std::vector<std::filesystem::path> &libraries) {
 	Symbol_database::Write_stats stats;
-	std::ofstream file{path, std::ios_base::out | std::ios_base::binary};
+	std::ofstream file{output_file, std::ios_base::out | std::ios_base::binary};
 	File_Writer writer{file};
 
 	std::map<std::string /*mangled_symbol*/, std::string /*libs*/> mangled_symbol_db;
@@ -230,7 +230,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	lib_indexes.reserve(libraries.size());
 	for (auto &lib : libraries) {
 		lib_indexes.push_back(writer.pos());
-		writer << lib << '\0';
+		writer << lib.c_str() << '\0';
 	}
 	stats.libs_db_size = writer.pos() - stats.libs_db_size;
 

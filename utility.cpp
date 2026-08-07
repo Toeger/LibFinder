@@ -59,18 +59,6 @@ std::string get_error_from_command(const char *command, std::vector<std::string>
 	return get_output(command, argv, "2>&1 1>/dev/null", working_directory);
 }
 
-const std::string &get_install_status() {
-	static const std::string status = [] {
-		std::string retval;
-		auto dpkg_version = get_output_from_command("dpkg --robot --version", {});
-		if (not dpkg_version.empty() and dpkg_version.front() == '1') {
-			retval = get_output_from_command("ls -l /var/log/dpkg* | md5sum", {});
-		}
-		return retval + "/" __DATE__ "/" __TIME__;
-	}();
-	return status;
-}
-
 std::pair<int, std::string> run_command(const char *command, std::vector<std::string> argv, std::filesystem::path working_directory) {
 	int result{};
 	std::string output = get_output(command, argv, "2>&1", working_directory, &result);

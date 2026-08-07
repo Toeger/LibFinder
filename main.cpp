@@ -7,6 +7,7 @@
 #include "profile.h"
 #include "symbol_database.h"
 #include "symbol_matcher.h"
+#include "system.h"
 
 #include <boost/program_options.hpp>
 #include <format>
@@ -80,9 +81,7 @@ int main(int argc, char *argv[]) try {
 		}
 	}
 	if (program_args.contains("test")) {
-		for (auto &symbol : parse_lib("/usr/lib/x86_64-linux-gnu/libc.so", false, {})) {
-			std::cout << symbol.mangled_name << '\n';
-		}
+		test_system();
 		return 0;
 	}
 	if (program_args.contains("profile")) {

@@ -3,17 +3,43 @@ project(libfinder LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-aux_source_directory(. SRC_LIST)
+set(SRC_LIST
+	asserts.cpp
+	cast.cpp
+	color.cpp
+	format.cpp
+	generate.cpp
+	libclang.cpp
+	libparser.cpp
+	libtooling.cpp
+	main.cpp
+	profile.cpp
+	raii.cpp
+	symbol_database.cpp
+	symbol_matcher.cpp
+	system.cpp
+	test.cpp
+	utility.cpp
+)
 list(TRANSFORM SRC_LIST REPLACE "\.cpp$" ".h" OUTPUT_VARIABLE HEADER_LIST)
 add_executable(${PROJECT_NAME} ${SRC_LIST} ${HEADER_LIST})
-find_package(Boost COMPONENTS program_options REQUIRED)
-find_package(Threads REQUIRED)
-find_package(Clang 21.1 CONFIG REQUIRED)
+
 find_package(LLVM 21.1 REQUIRED)
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(${PROJECT_NAME} PRIVATE clangTooling)
+
+find_package(Clang 21.1 CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE libclang)
 target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${CLANG_INCLUDE_DIRS})
+
+find_package(Boost COMPONENTS program_options REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${Boost_LIBRARIES})
+
+find_package(Threads REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_THREAD_LIBS_INIT})
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external)
-target_link_libraries(${PROJECT_NAME} PRIVATE libclang ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} clangTooling)
+
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -ggdb -Wall -Werror -fsanitize=undefined,address -fno-omit-frame-pointer")
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_binary_literals)
 set(MISC_FILES

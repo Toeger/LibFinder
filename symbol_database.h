@@ -18,7 +18,7 @@ namespace Symbol_database {
 	struct Writer {
 		Writer(std::size_t libraries);
 		void add(std::string mangled_symbol, std::size_t lib_id);
-		Write_stats write(std::filesystem::path path, const std::vector<std::string> &libraries);
+		Write_stats write(std::filesystem::path output_file, const std::vector<std::filesystem::path> &libraries);
 		void merge(Writer &&other);
 		std::size_t symbol_count() const;
 

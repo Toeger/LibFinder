@@ -32,8 +32,8 @@ void update(int jobs) {
 	std::atomic<std::size_t> handled_libs{0};
 	std::atomic<std::size_t> skipped_libs{0};
 	std::size_t library_candidates;
-	std::vector<std::string> file_paths = [&library_candidates] {
-		std::vector<std::string> queue;
+	std::vector<std::filesystem::path> file_paths = [&library_candidates] {
+		std::vector<std::filesystem::path> queue;
 		//add all lib*.so and lib*.a files to queue
 		std::istringstream is(get_output_from_command("locate", {"-m0bser", "--regextype", "awk", "^lib.*\\.(so|a)$"}));
 		for (std::string line; std::getline(is, line, '\0');) {
