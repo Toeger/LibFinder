@@ -101,7 +101,8 @@ int main(int argc, char *argv[]) try {
 		const auto &prefix = program_args["symbol"].as<std::string>();
 		std::cout << "All symbols that have the prefix \"" << prefix << "\" and their libraries:\n";
 		Symbol_database::Reader reader{data_base_filepath};
-		auto symbols_libs = reader.libraries_from_prefix(prefix);
+		std::map<std::string_view, std::vector<std::filesystem::path>> symbols_libs;
+		reader.libraries_from_prefix(prefix, [&symbols_libs](std::string_view symbol, std::filesystem::path lib) { symbols_libs[symbol].push_back(lib); });
 		for (auto &[symbol, libs] : symbols_libs) {
 			std::cout << symbol << '\n';
 			std::sort(std::begin(libs), std::end(libs));

@@ -1,6 +1,8 @@
 #pragma once
 
+#include "utility.h"
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <string>
 #include <string_view>
@@ -17,6 +19,9 @@ namespace Symbol_database {
 
 	struct Writer {
 		Writer(std::size_t libraries);
+		static std::pair<Writer, std::vector<std::filesystem::path>> from_db_file(
+			std::filesystem::path db_file, std::function_ref<bool(std::string_view symbol, std::filesystem::path library)> filter =
+											   [](std::string_view, std::filesystem::path) { return true; });
 		void add(std::string mangled_symbol, std::size_t lib_id);
 		Write_stats write(std::filesystem::path output_file, const std::vector<std::filesystem::path> &libraries);
 		void merge(Writer &&other);
@@ -32,15 +37,15 @@ namespace Symbol_database {
 		~Reader();
 		Reader(Reader &&other);
 		Reader &operator=(Reader &&other);
-		std::vector<std::filesystem::path> libraries_from_symbol(std::string symbol) const;
-		std::map<std::string_view, std::vector<std::filesystem::path>> libraries_from_prefix(std::string symbol_prefixes) const;
+		void libraries_from_symbol(std::string symbol, std::function_ref<void(std::filesystem::path)> callback) const;
+		void libraries_from_prefix(std::string symbol_prefixes, std::function_ref<void(std::string_view symbol, std::filesystem::path lib)> callback) const;
 		bool is_outdated() const;
 
 		private:
 		struct Symbol_Db_Iterator;
 		std::string_view get_symbol(std::size_t index) const;
-		std::map<std::string_view /*mangled_symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> get_libraries(Symbol_Db_Iterator begin,
-																														 Symbol_Db_Iterator end) const;
+		void get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end,
+						   Callback_Function<std::string_view /*mangled_symbol*/, std::filesystem::path /*lib*/> auto &&callback) const;
 		Symbol_Db_Iterator begin() const;
 		Symbol_Db_Iterator end() const;
 

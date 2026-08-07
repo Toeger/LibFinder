@@ -265,6 +265,23 @@ Symbol_database::Writer::Writer(std::size_t libraries)
 	}
 }
 
+std::pair<Symbol_database::Writer, std::vector<std::filesystem::path>>
+Symbol_database::Writer::from_db_file(std::filesystem::path db_file, std::function_ref<bool(std::string_view symbol, std::filesystem::path library)> filter) {
+	Reader reader{db_file};
+	Writer writer{0};
+	std::vector<std::filesystem::path> libraries;
+	reader.libraries_from_prefix("", [&libraries, &writer, filter](std::string_view symbol, std::filesystem::path lib) {
+		if (not filter(symbol, lib)) {
+			return;
+		}
+		if (lib != libraries.back()) {
+			libraries.push_back(lib);
+		}
+		writer.add(std::string{symbol}, libraries.size() - 1);
+	});
+	return {writer, libraries};
+}
+
 void Symbol_database::Writer::merge(Writer &&other) {
 	for (auto &d : other.mangled_data) {
 		mangled_data.push_back(std::move(d));
@@ -399,6 +416,23 @@ struct Symbol_database::Reader::Symbol_Db_Iterator {
 	const Symbol_database::Reader *reader;
 };
 
+void Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end,
+											Callback_Function<std::string_view /*mangled_symbol*/, std::filesystem::path /*lib*/> auto &&callback) const {
+	while (begin < end) {
+		auto start = begin.offset();
+		begin++;
+		auto ext = Extractor{data}[start, begin.offset()];
+		const std::string_view symbol = ext;
+		while (ext) {
+			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
+			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
+			if (not call_callback_function(callback, symbol, Extractor{data}[lib_offset])) {
+				return;
+			}
+		}
+	}
+}
+
 Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::begin() const {
 	return {.index = 0, .reader = this};
 }
@@ -407,27 +441,23 @@ Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::end() const
 	return {.index = symbol_count, .reader = this};
 }
 
-std::vector<std::filesystem::path /*lib*/> Symbol_database::Reader::libraries_from_symbol(std::string symbol) const {
+void Symbol_database::Reader::libraries_from_symbol(std::string symbol, std::function_ref<void(std::filesystem::path)> callback) const {
 	auto it = std::lower_bound(begin(), end(), symbol);
 	if (it == end() or *it != symbol) {
-		return {};
+		return;
 	}
-	return std::move(get_libraries(it, it + 1).begin()->second);
+	get_libraries(it, it + 1, [&callback](std::string_view, std::filesystem::path path) { callback(path); });
 }
 
-std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/>
-Symbol_database::Reader::libraries_from_prefix(std::string symbol_prefixes) const {
+void Symbol_database::Reader::libraries_from_prefix(std::string symbol_prefixes,
+													std::function_ref<void(std::string_view symbol, std::filesystem::path lib)> callback) const {
 	assert(([&] {
 		auto first_non_sorted = std::is_sorted_until(begin(), end());
 		if (first_non_sorted != end()) {
 			std::cout << "Searching " << end().index - 1 << " symbols" << std::endl;
 			std::cout << +(*first_non_sorted).front() << " at index " << first_non_sorted.index << std::endl;
 			std::cout << " with libraries " << first_non_sorted.index << '\n';
-			auto found_libs = get_libraries(first_non_sorted, first_non_sorted + 1);
-			std::cout << found_libs.size() << std::flush;
-			for (auto &lib : found_libs.begin()->second) {
-				std::cout << '\t' << lib << std::endl;
-			}
+			get_libraries(first_non_sorted, first_non_sorted + 1, [](std::string_view, std::filesystem::path lib) { std::cout << '\t' << lib << std::endl; });
 			return false;
 		}
 		return true;
@@ -437,7 +467,7 @@ Symbol_database::Reader::libraries_from_prefix(std::string symbol_prefixes) cons
 	while (end_it != end() and (*end_it).starts_with(symbol_prefixes)) {
 		++end_it;
 	}
-	return get_libraries(start_it, end_it);
+	return get_libraries(start_it, end_it, callback);
 }
 
 bool Symbol_database::Reader::is_outdated() const {
@@ -447,20 +477,4 @@ bool Symbol_database::Reader::is_outdated() const {
 std::string_view Symbol_database::Reader::get_symbol(std::size_t index) const {
 	File_Offset offset = Extractor{mangled_symbol_indexes}[index * sizeof(File_Offset)];
 	return Extractor{data}[offset];
-}
-
-std::map<std::string_view, std::vector<std::filesystem::path>> Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end) const {
-	std::map<std::string_view /*symbol*/, std::vector<std::filesystem::path /*lib*/> /*libs*/> result;
-	while (begin < end) {
-		auto start = begin.offset();
-		begin++;
-		auto ext = Extractor{data}[start, begin.offset()];
-		auto &found_libs = result[ext];
-		while (ext) {
-			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
-			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
-			found_libs.push_back(Extractor{data}[lib_offset]);
-		}
-	}
-	return result;
 }

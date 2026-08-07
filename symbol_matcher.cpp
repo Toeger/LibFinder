@@ -178,7 +178,8 @@ std::string Symbol_matcher::resolve_to_command() {
 	 */
 	for (auto it = std::begin(undefined); it != std::end(undefined);) {
 		auto &[symbol, type_origin] = *it;
-		auto libs = db.libraries_from_symbol(symbol);
+		std::vector<std::filesystem::path> libs;
+		db.libraries_from_symbol(symbol, [&libs](std::filesystem::path lib) { libs.push_back(lib); });
 		//libs.erase(std::remove_if(std::begin(libs), std::end(libs), [](std::string_view sv) { return sv.starts_with("/snap"); }), std::end(libs));
 		{
 			std::multimap<std::ptrdiff_t /*priority*/, std::filesystem::path /*library*/> priorities;
@@ -243,7 +244,8 @@ std::string Symbol_matcher::resolve_to_command() {
 	std::vector<std::vector<std::filesystem::path>> lib_sets;
 	for (auto &[symbol, type_origin] : undefined) {
 		if (type_origin.type == Symbol_type::undefined) {
-			auto libs = db.libraries_from_symbol(symbol);
+			std::vector<std::filesystem::path> libs;
+			db.libraries_from_symbol(symbol, [&libs](std::filesystem::path lib) { libs.push_back(lib); });
 			//libs.erase(std::remove_if(std::begin(libs), std::end(libs), [](std::string_view sv) { return sv.starts_with("/snap"); }), std::end(libs));
 			std::ranges::sort(libs);
 			libs.erase(std::unique(std::begin(libs), std::end(libs)), std::end(libs));

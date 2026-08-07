@@ -59,24 +59,7 @@ constexpr std::strong_ordering number_string_compare(std::string_view lhs, std::
 	}
 }
 
-template <class F, class... Args>
-concept Function = requires(F &&f) {
-	{ f(std::declval<Args>()...) } -> std::convertible_to<bool>;
-} or requires(F &&f) {
-	{ f(std::declval<Args>()...) } -> std::same_as<void>;
-};
-
-template <class... Args>
-bool bool_call(Function<Args...> auto &&callback, Args... args) {
-	if constexpr (std::is_void_v<decltype(callback(std::forward<Args>(args)...))>) {
-		callback(std::forward<Args>(args)...);
-		return true;
-	} else {
-		return callback(std::forward<Args>(args)...);
-	}
-}
-
-void reverse_lines(std::string_view data, Function<std::string_view> auto &&callback) {
+void reverse_lines(std::string_view data, Callback_Function<std::string_view> auto &&callback) {
 	for (;;) {
 		const auto pos = data.rfind('\n');
 		if (pos == data.npos) {
@@ -91,7 +74,7 @@ void reverse_lines(std::string_view data, Function<std::string_view> auto &&call
 		if (line.empty()) {
 			continue;
 		}
-		if (not bool_call(callback, line)) {
+		if (not call_callback_function(callback, line)) {
 			return;
 		}
 	}
@@ -102,7 +85,7 @@ struct Recently_Installed_Dpkg_Package {
 	std::string_view timestamp;
 };
 
-void recently_installed_dpkg_packages(Function<Recently_Installed_Dpkg_Package> auto &&callback) {
+void recently_installed_dpkg_packages(Callback_Function<Recently_Installed_Dpkg_Package> auto &&callback) {
 	std::vector<std::filesystem::path> dpkg_logs;
 	for (const auto &dir : std::filesystem::directory_iterator{"/var/log/"}) {
 		if (not std::string_view{dir.path().filename().c_str()}.starts_with("dpkg.")) {
@@ -124,10 +107,10 @@ void recently_installed_dpkg_packages(Function<Recently_Installed_Dpkg_Package> 
 		reverse_lines(packages, [&](std::string_view line) {
 			std::match_results<std::string_view::const_iterator> match;
 			if (std::regex_match(std::begin(line), std::end(line), match, dpkg_entry)) {
-				if (not bool_call<Recently_Installed_Dpkg_Package>(callback, {
-																				 .package_name = std::string_view{match[2].first, match[2].second},
-																				 .timestamp = std::string_view{match[1].first, match[1].second},
-																			 })) {
+				if (not call_callback_function<Recently_Installed_Dpkg_Package>(callback, {
+																							  .package_name = std::string_view{match[2].first, match[2].second},
+																							  .timestamp = std::string_view{match[1].first, match[1].second},
+																						  })) {
 					return;
 				}
 			} else {
