@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) try {
 					"{} (once every time your libs change) and look up a symbol with {} to get a list of libraries that define [symbol].\nParameters",
 					Color::command("sudo updatedb"), Color::command("libfinder -u"), Color::command("libfinder -s [symbol]")));
 	int jobs = 0;
-	const int hardware_concurrency = std::thread::hardware_concurrency();
+	const int hardware_concurrency = Cast{std::thread::hardware_concurrency()};
 	const auto update_description =
 		"update lookup table (must be done before first use) with given number of threads (default=" + std::to_string(hardware_concurrency) + ")";
 	options.add_options()																										  //
@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) try {
 			std::cerr << "jobs must be at least 1\n";
 			return -1;
 		}
-		update(jobs);
+		update(Cast{jobs});
 	}
 	if (program_args.contains("symbol")) {
 		const auto &prefix = program_args["symbol"].as<std::string>();

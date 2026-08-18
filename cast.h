@@ -8,13 +8,21 @@
 namespace detail::Cast {
 	template <class T>
 	constexpr bool is_number = std::is_arithmetic_v<T>;
+
 	template <class Clock, class Duration>
-	std::true_type is_time_point_(std::chrono::time_point<Clock, Duration>);
-	std::false_type is_time_point_(...);
+	std::true_type helper_is_time_point(std::chrono::time_point<Clock, Duration>);
+	std::false_type helper_is_time_point(...);
 	template <class T>
-	constexpr bool is_time_point = decltype(is_time_point_(std::declval<T>()))::value;
+	constexpr bool is_time_point = decltype(helper_is_time_point(std::declval<T>()))::value;
+
+	template <class Representation, class Period>
+	std::true_type helper_is_duration(std::chrono::duration<Representation, Period>);
+	std::false_type helper_is_duration(...);
 	template <class T>
-	constexpr bool is_accepted = is_time_point<T> or is_number<T>;
+	constexpr bool is_duration = decltype(helper_is_duration(std::declval<T>()))::value;
+
+	template <class T>
+	constexpr bool is_accepted = is_time_point<T> or is_duration<T> or is_number<T>;
 } // namespace detail::Cast
 
 template <class Internal>
@@ -63,6 +71,12 @@ struct Cast {
 		} else {
 			return std::chrono::clock_cast<To_Clock>(value);
 		}
+	}
+
+	template <class To_Representation, class To_Period>
+		requires(detail::Cast::is_duration<Internal>)
+	operator std::chrono::duration<To_Representation, To_Period>() const {
+		return std::chrono::duration_cast<std::chrono::duration<To_Representation, To_Period>>(value);
 	}
 
 	auto operator+() const {

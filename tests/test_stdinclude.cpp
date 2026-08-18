@@ -43,7 +43,9 @@ TEST_CASE("Including iostream") {
 			if (not locations.declaration) {
 				INFO("Failed finding " << Symbol{{.mangled_name = std::string{mangled_name}}});
 				INFO(locations);
-				CHECK(not reader.libraries_from_symbol(std::string{mangled_name}).empty());
+				bool found_any_libraries{};
+				REQUIRE_THROWS(reader.libraries_from_symbol(std::string{mangled_name}, [](std::filesystem::path) { throw 0; }));
+				CHECK(found_any_libraries);
 				continue;
 			}
 			INFO(locations);

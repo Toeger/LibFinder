@@ -14,8 +14,9 @@
 #include <future>
 #include <iostream>
 #include <print>
-#include <sstream>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <utility>
 
 const std::filesystem::path data_base_path = [] {
@@ -27,29 +28,36 @@ const std::filesystem::path data_base_path = [] {
 //TODO: find a way to share the files between users
 const std::filesystem::path data_base_filepath = data_base_path / "database";
 
-void update(int jobs) {
-	std::cout << "Collecting library candidates...\r" << std::flush;
+static std::string_view skip_last(std::string_view sv) {
+	sv.remove_suffix(1);
+	return sv;
+}
+
+void get_locate_libraries(std::invocable<std::filesystem::path> auto &&callback) {
+	std::vector<std::filesystem::path> queue;
+	//add all lib*.so and lib*.a files to queue
+	for (auto line :
+		 skip_last(get_output_from_command("locate", {"-m0bser", "--regextype", "awk", "^lib.*\\.(so|a)$"})) | std::views::split(std::string_view{"", 1})) {
+		assert(not line.empty());
+		assert(line.front() == '/');
+		callback(std::filesystem::path{std::string_view{line}});
+	}
+}
+
+void update(unsigned int jobs) {
+	std::vector<std::filesystem::path> file_paths;
+	get_locate_libraries([&file_paths](std::filesystem::path lib) { file_paths.push_back(lib); });
+	update(file_paths, jobs);
+}
+
+void update(std::vector<std::filesystem::path> file_paths, unsigned int jobs) {
 	std::atomic<std::size_t> handled_libs{0};
 	std::atomic<std::size_t> skipped_libs{0};
-	std::size_t library_candidates;
-	std::vector<std::filesystem::path> file_paths = [&library_candidates] {
-		std::vector<std::filesystem::path> queue;
-		//add all lib*.so and lib*.a files to queue
-		std::istringstream is(get_output_from_command("locate", {"-m0bser", "--regextype", "awk", "^lib.*\\.(so|a)$"}));
-		for (std::string line; std::getline(is, line, '\0');) {
-			assert(not line.empty());
-			assert(line.front() == '/');
-			queue.push_back(std::move(line));
-		}
-		//file_paths.pop_n(queue.size() - 100);
-		library_candidates = queue.size();
-		std::cout << "Collecting symbols from " << number(library_candidates) << " library candidates...\n" << std::endl;
-		return queue;
-	}();
+	std::cout << "Collecting symbols from " << number(file_paths.size()) << " library candidates...\n" << std::endl;
 	PROF << "to collect list of libraries";
 
 	const auto &lib_paths = gcc_lib_paths();
-	static auto print_status_update = [&library_candidates](std::size_t lib_index) {
+	static auto print_status_update = [library_candidates = file_paths.size()](std::size_t lib_index) {
 		if (lib_index == 0) {
 			return;
 		}
@@ -110,9 +118,8 @@ void update(int jobs) {
 		std::cout << std::endl;
 	};
 
-	auto thread_handler = [&cfile_paths = std::as_const(file_paths), &handled_libs, library_candidates_count = std::as_const(library_candidates), &skipped_libs,
-						   &lib_paths] {
-		Symbol_database::Writer symbol_map{library_candidates_count};
+	auto thread_handler = [&cfile_paths = std::as_const(file_paths), &handled_libs, library_candidates_count = file_paths.size(), &skipped_libs, &lib_paths] {
+		Symbol_database::Writer symbol_map;
 		for (std::size_t lib_index = handled_libs++; lib_index < std::size(cfile_paths); lib_index = handled_libs++) {
 			print_status_update(lib_index);
 			auto libs = parse_lib(cfile_paths[lib_index], false, lib_paths);

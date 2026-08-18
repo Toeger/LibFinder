@@ -11,6 +11,7 @@
 #include <iostream>
 #include <map>
 #include <print>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -19,7 +20,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #else
-//TODO: Implement Windows version
+#error "TODO: Implement Windows version"
 #endif
 
 #if __GNUC__
@@ -180,6 +181,10 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	Symbol_database::Write_stats stats;
 	std::ofstream file{output_file, std::ios_base::out | std::ios_base::binary};
 	File_Writer writer{file};
+	std::uint8_t sizeof_Lib_Index{};
+	for (auto libs = libraries.size(); libs; libs /= 256) {
+		sizeof_Lib_Index++;
+	}
 
 	std::map<std::string /*mangled_symbol*/, std::string /*libs*/> mangled_symbol_db;
 
@@ -257,19 +262,11 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 	return stats;
 }
 
-Symbol_database::Writer::Writer(std::size_t libraries)
-	: sizeof_Lib_Index{1} {
-	while (libraries > 255) {
-		libraries /= 256;
-		sizeof_Lib_Index++;
-	}
-}
-
 std::pair<Symbol_database::Writer, std::vector<std::filesystem::path>>
 Symbol_database::Writer::from_db_file(std::filesystem::path db_file, std::function_ref<bool(std::string_view symbol, std::filesystem::path library)> filter) {
 	Reader reader{db_file};
-	Writer writer{0};
-	std::vector<std::filesystem::path> libraries;
+	Writer writer;
+	std::vector<std::filesystem::path> libraries{""};
 	reader.libraries_from_prefix("", [&libraries, &writer, filter](std::string_view symbol, std::filesystem::path lib) {
 		if (not filter(symbol, lib)) {
 			return;
@@ -417,7 +414,7 @@ struct Symbol_database::Reader::Symbol_Db_Iterator {
 };
 
 void Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end,
-											Callback_Function<std::string_view /*mangled_symbol*/, std::filesystem::path /*lib*/> auto &&callback) const {
+											std::invocable<std::string_view, std::filesystem::path> auto &&callback) const {
 	while (begin < end) {
 		auto start = begin.offset();
 		begin++;
@@ -426,9 +423,7 @@ void Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_
 		while (ext) {
 			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
 			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
-			if (not call_callback_function(callback, symbol, Extractor{data}[lib_offset])) {
-				return;
-			}
+			callback(symbol, Extractor{data}[lib_offset]);
 		}
 	}
 }

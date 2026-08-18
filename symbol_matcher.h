@@ -3,6 +3,7 @@
 #include "libparser.h"
 #include "symbol_database.h"
 
+#include <map>
 #include <stdexcept>
 
 struct Symbol_matcher {

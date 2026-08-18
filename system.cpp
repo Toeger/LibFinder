@@ -1,4 +1,8 @@
 #include "system.h"
+#include "cast.h"
+#include "generate.h"
+#include "profile.h"
+#include "symbol_database.h"
 #include "utility.h"
 
 #include <algorithm>
@@ -59,12 +63,12 @@ constexpr std::strong_ordering number_string_compare(std::string_view lhs, std::
 	}
 }
 
-void reverse_lines(std::string_view data, Callback_Function<std::string_view> auto &&callback) {
+void reverse_lines(std::string_view data, std::invocable<std::string_view> auto &&callback, const char separator = '\n') {
 	for (;;) {
-		const auto pos = data.rfind('\n');
+		const auto pos = data.rfind(separator);
 		if (pos == data.npos) {
 			if (not data.empty()) {
-				callback(data);
+				callback(std::move(data));
 			}
 			return;
 		}
@@ -74,9 +78,7 @@ void reverse_lines(std::string_view data, Callback_Function<std::string_view> au
 		if (line.empty()) {
 			continue;
 		}
-		if (not call_callback_function(callback, line)) {
-			return;
-		}
+		callback(std::move(line));
 	}
 }
 
@@ -85,7 +87,7 @@ struct Recently_Installed_Dpkg_Package {
 	std::string_view timestamp;
 };
 
-void recently_installed_dpkg_packages(Callback_Function<Recently_Installed_Dpkg_Package> auto &&callback) {
+void recently_installed_dpkg_packages(std::invocable<Recently_Installed_Dpkg_Package> auto &&callback) {
 	std::vector<std::filesystem::path> dpkg_logs;
 	for (const auto &dir : std::filesystem::directory_iterator{"/var/log/"}) {
 		if (not std::string_view{dir.path().filename().c_str()}.starts_with("dpkg.")) {
@@ -107,12 +109,10 @@ void recently_installed_dpkg_packages(Callback_Function<Recently_Installed_Dpkg_
 		reverse_lines(packages, [&](std::string_view line) {
 			std::match_results<std::string_view::const_iterator> match;
 			if (std::regex_match(std::begin(line), std::end(line), match, dpkg_entry)) {
-				if (not call_callback_function<Recently_Installed_Dpkg_Package>(callback, {
-																							  .package_name = std::string_view{match[2].first, match[2].second},
-																							  .timestamp = std::string_view{match[1].first, match[1].second},
-																						  })) {
-					return;
-				}
+				callback(Recently_Installed_Dpkg_Package{
+					.package_name = {match[2].first, match[2].second},
+					.timestamp = {match[1].first, match[1].second},
+				});
 			} else {
 				throw std::runtime_error{std::format("Failed parsing dpkg log in {} with line {}", dpkg_log, line)};
 			}
@@ -120,12 +120,43 @@ void recently_installed_dpkg_packages(Callback_Function<Recently_Installed_Dpkg_
 	}
 }
 
-static void get_last_apt_install() {
-	recently_installed_dpkg_packages([](Recently_Installed_Dpkg_Package &&package) { std::cout << package.package_name << " " << package.timestamp << '\n'; });
+void dpkg_packages(std::invocable<std::string_view> auto &&callback) {
+	for (auto range : get_output_from_command("dpkg", {"-l"}) | std::views::split(std::string_view{"\n"})) {
+		std::string_view line{range};
+		if (not line.starts_with("ii ")) {
+			continue;
+		}
+		line.remove_prefix(4);
+		callback(line.substr(0, line.find(' ')));
+	}
 }
 
 void test_system() {
-	get_last_apt_install();
+	profile::target = &std::cerr;
+	static const std::regex lib_file{R"(.*/lib[^/]*\.(a|so)$)"};
+	std::vector<std::string> dpkg_command{"-L"};
+	dpkg_packages([&dpkg_command](std::string_view package) { dpkg_command.push_back(std::string{package}); });
+	PROF << "to get list of packages";
+
+	std::vector<std::filesystem::path> libfiles;
+	const auto package_list = get_output_from_command("dpkg", std::move(dpkg_command));
+	PROF << "to get list of files from dpkg";
+	for (auto file : package_list | std::views::split(std::string_view{"\n"})) {
+		std::string_view line{file};
+		if (not(line.ends_with(".so") or line.ends_with(".a"))) {
+			continue;
+		}
+		const auto slash_pos = line.rfind('/');
+		line.remove_prefix(slash_pos + 1);
+		if (line.starts_with("lib")) {
+			libfiles.push_back(line);
+		}
+	}
+	PROF << "to parse list of" << std::size(libfiles) << "lib files";
+
+	update(libfiles);
+
+	PROF << "to parse symbols";
 }
 
 const std::string &get_install_status() {

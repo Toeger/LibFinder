@@ -1,9 +1,7 @@
 #pragma once
 
-#include "utility.h"
 #include <filesystem>
 #include <functional>
-#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,7 +16,6 @@ namespace Symbol_database {
 	};
 
 	struct Writer {
-		Writer(std::size_t libraries);
 		static std::pair<Writer, std::vector<std::filesystem::path>> from_db_file(
 			std::filesystem::path db_file, std::function_ref<bool(std::string_view symbol, std::filesystem::path library)> filter =
 											   [](std::string_view, std::filesystem::path) { return true; });
@@ -29,7 +26,6 @@ namespace Symbol_database {
 
 		private:
 		std::vector<std::vector<std::pair<std::string /*mangled_symbol*/, std::size_t /*libindex*/>>> mangled_data{{}};
-		std::uint8_t sizeof_Lib_Index;
 	};
 
 	struct Reader {
@@ -45,7 +41,7 @@ namespace Symbol_database {
 		struct Symbol_Db_Iterator;
 		std::string_view get_symbol(std::size_t index) const;
 		void get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end,
-						   Callback_Function<std::string_view /*mangled_symbol*/, std::filesystem::path /*lib*/> auto &&callback) const;
+						   std::invocable<std::string_view /*mangled_symbol*/, std::filesystem::path /*lib*/> auto &&callback) const;
 		Symbol_Db_Iterator begin() const;
 		Symbol_Db_Iterator end() const;
 
