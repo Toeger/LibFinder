@@ -48,7 +48,6 @@ namespace Symbol_database {
 		std::basic_string_view<std::byte> data;
 		std::uint32_t symbol_count{};
 		std::uint8_t sizeof_Lib_Index;
-		std::size_t lib_count{};
 		std::basic_string_view<std::byte> mangled_symbol_indexes;
 		std::basic_string_view<std::byte> lib_indexes;
 		bool outdated;

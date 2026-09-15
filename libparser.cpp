@@ -14,6 +14,10 @@
 #include <regex>
 #include <set>
 
+static constexpr std::string_view ignored_symbols[] = {
+	"_init", "_fini", "_end", "_edata", "__bss_start",
+};
+
 static std::string_view &skip_past(std::string_view &sv, char c) {
 	const auto pos = sv.find(c);
 	if (pos == sv.npos) {
@@ -222,6 +226,9 @@ static void parse_lib(std::vector<Symbol> &symbol_list, std::filesystem::path pa
 		if (auto pos = line.rfind(' '); pos != line.npos) {
 			line.remove_prefix(pos + 1);
 			if (line.contains('.')) {
+				continue;
+			}
+			if (std::ranges::find(ignored_symbols, line) != std::end(ignored_symbols)) {
 				continue;
 			}
 			symbol_list.push_back(Symbol{{.type = type, .mangled_name = std::string{line}}});

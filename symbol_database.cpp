@@ -32,27 +32,33 @@
 #endif
 
 namespace {
-	namespace For::documentation::of::file::format::only {
-		constexpr auto variable = !0;	   //indicates variable value
-		using Lib_Index = unsigned;		   //an index type with variable byte size lib_index_size
+	namespace { //exposition only, not part of the file
+
+		constexpr auto variable = not 0;   //indicates variable value
+		using Lib_Index_Type = unsigned;   //an index type with variable byte size sizeof_Lib_Index_Type
 		using File_Offset = std::uint32_t; //4 byte file offset type, offset from start of database file
+	} // namespace
 
-		const char magic_number[12] = "LibFinderV1";   //if it doesn't match file content, this documentation does not apply
-		char install_status[] = {variable};			   //the state of the packages when the database was created, null-terminated
-		const std::uint32_t symbol_count{variable};	   //number of demangled symbols
-		const std::uint8_t sizeof_Lib_Index{variable}; //number of bytes of Lib_Index type
-		const Lib_Index lib_count{variable};		   //number of lib_db and lib_indexes entries
+	namespace For::documentation::of::file::format::only {
+		char magic_number[12] = "LibFinderV1"; //if it doesn't match file content, this documentation does not apply, exactly 12 bytes, null-terminated
 
-		File_Offset mangled_symbol_indexes[symbol_count + 1]; //offsets to sorted mangled symbols in mangled_symbol_db
-		File_Offset lib_indexes[lib_count];					  //offsets of lib indexes, contains an extra entry for past symbol_db
+		char install_status[variable] = {variable}; //the "state" of the system when the database was created, used to determine update needs, null-terminated
+
+		const std::uint32_t symbol_count = variable; //number of demangled symbols
+
+		std::uint8_t sizeof_Lib_Index = variable; //number of bytes of Lib_Index_Type, not necessarily a power of 2
+
+		File_Offset mangled_symbol_indexes[symbol_count + 1]; //offsets to sorted mangled symbols in mangled_symbol_db, extra entry for end of mangled_symbol_db
+
+		File_Offset lib_indexes[variable] = {variable}; //offsets of lib indexes
 
 		struct {
 			char mangled_symbol[variable]; //null-terminated
-			Lib_Index libs[variable];	   //index to lib_indexes that provide symbol. The end of libs is the index of the next symbol
-		} mangled_symbol_db[symbol_count]; //indexed by both mangled_symbol_indexes and demangled_symbol_indexes
-		char lib_db[variable][lib_count];  //unsorted list of library paths, null-terminated
-	} // namespace For::documentation::of::file::format::only
+			Lib_Index_Type libs[variable]; //index to lib_indexes that provide symbol. The end of libs is the offset of the next symbol
+		} mangled_symbol_db[symbol_count]; //indexed by mangled_symbol_indexes
 
+		char lib_db[variable]; //unsorted list of library paths, null-terminated
+	} // namespace For::documentation::of::file::format::only
 } // namespace
 
 #if __GNUC__
@@ -125,7 +131,6 @@ static void leak(T &t) {
 }
 
 static constexpr auto &magic_number = "LibFinderV1";
-using File_Offset = std::uint32_t;
 
 void Symbol_database::Writer::add(std::string mangled_symbol, std::size_t lib_id) {
 	mangled_data.front().push_back({std::move(mangled_symbol), lib_id});
@@ -139,19 +144,35 @@ struct File_Writer {
 		return *this;
 	}
 
-	void operator<<(char c) {
+	File_Writer &operator<<(char c) {
 		os << c;
+		return *this;
 	}
 
-	void operator<<(std::unsigned_integral auto n)
+	File_Writer &operator<<(std::unsigned_integral auto n)
 		requires(not std::is_same_v<decltype(n), bool>)
 	{
 		write_dynamic(n, sizeof(n));
+		return *this;
 	}
 
 	template <class T>
-	void operator<<(std::vector<T> v) {
+	File_Writer &operator<<(std::vector<T> v) {
 		os.write(reinterpret_cast<const char *>(v.data()), Cast{std::size(v)} * sizeof(v.front()));
+		return *this;
+	}
+
+	File_Writer &operator<<(const std::filesystem::path &path) {
+		return *this << std::string_view{path.native()};
+	}
+
+	File_Writer &operator<<(const std::string &s) {
+		return *this << std::string_view{s};
+	}
+
+	template <std::size_t size>
+	File_Writer &operator<<(const char (&s)[size]) {
+		return *this << std::string_view{s, size};
 	}
 
 	void write_dynamic(std::size_t value, std::size_t size) {
@@ -177,14 +198,19 @@ struct File_Writer {
 	std::ostream &os;
 };
 
+static std::uint8_t bytes_required_for(std::size_t n) {
+	std::uint8_t retval{};
+	for (; n; n /= 256) {
+		retval++;
+	}
+	return retval;
+}
+
 Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path output_file, const std::vector<std::filesystem::path> &libraries) {
 	Symbol_database::Write_stats stats;
 	std::ofstream file{output_file, std::ios_base::out | std::ios_base::binary};
 	File_Writer writer{file};
-	std::uint8_t sizeof_Lib_Index{};
-	for (auto libs = libraries.size(); libs; libs /= 256) {
-		sizeof_Lib_Index++;
-	}
+	const std::uint8_t sizeof_Lib_Index = bytes_required_for(libraries.size());
 
 	std::map<std::string /*mangled_symbol*/, std::string /*libs*/> mangled_symbol_db;
 
@@ -198,7 +224,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	stats.unique_symbols = mangled_symbol_db.size();
 
-	writer << magic_number << '\0';
+	writer << magic_number;
 
 	writer << get_install_status() << '\0';
 
@@ -207,51 +233,46 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 
 	writer << sizeof_Lib_Index;
 
-	const auto lib_count = libraries.size();
-	writer.write_dynamic(lib_count, sizeof_Lib_Index);
-
-	//seek past, fill out later
-	const long indexes_start = writer.pos();
-	std::char_traits<char>::pos_type t;
+	//seek past mangled_symbol_indexes, fill out later
+	const long mangled_symbol_indexes_start = writer.pos();
 	writer += Cast{sizeof(File_Offset)} * (symbol_count + 1) //mangled_symbol_indexes
-			  + sizeof(File_Offset) * lib_count;			 //lib_indexes
+			  + sizeof(File_Offset) * libraries.size();		 //lib_indexes
 
 	//mangled_symbol_db
-	stats.symbols_db_size = writer.pos();
+	const std::size_t mangled_symbol_db_start_pos = writer.pos();
 	std::vector<File_Offset> mangled_symbol_indexes;
 	mangled_symbol_indexes.reserve(symbol_count + 1);
 	for (const auto &[symbol, libindexes] : mangled_symbol_db) {
 		mangled_symbol_indexes.push_back(writer.pos());
-		writer << symbol << '\0';
-		writer << libindexes;
+		writer << symbol << '\0' << libindexes;
 	}
 	mangled_symbol_indexes.push_back(writer.pos());
 	assert(mangled_symbol_indexes.size() == symbol_count + 1);
-	stats.symbols_db_size = writer.pos() - stats.symbols_db_size;
+	const std::size_t mangled_symbol_db_end_pos = writer.pos();
+	stats.symbols_db_size = mangled_symbol_db_end_pos - mangled_symbol_db_start_pos;
 
 	//lib_db
-	stats.libs_db_size = writer.pos();
+	const std::size_t libs_db_start_pos = writer.pos();
 	std::vector<File_Offset> lib_indexes;
 	lib_indexes.reserve(libraries.size());
 	for (auto &lib : libraries) {
 		lib_indexes.push_back(writer.pos());
-		writer << lib.c_str() << '\0';
+		writer << lib << '\0';
 	}
-	stats.libs_db_size = writer.pos() - stats.libs_db_size;
+	const std::size_t libs_db_end_pos = writer.pos();
+	stats.libs_db_size = libs_db_end_pos - libs_db_start_pos;
 
 	//end of file, now rewind to fill indexes
-	writer = indexes_start;
-
-	stats.symbols_index_size = writer.pos();
+	writer = mangled_symbol_indexes_start;
 
 	//mangled_symbol_indexes
 	writer << mangled_symbol_indexes;
-	stats.symbols_index_size = writer.pos() - stats.symbols_index_size;
+	stats.symbols_index_size = writer.pos() - mangled_symbol_indexes_start;
 
 	//lib_indexes
-	stats.libs_index_size = writer.pos();
+	const std::size_t lib_indexes_start_pos = writer.pos();
 	writer << lib_indexes;
-	stats.libs_index_size = writer.pos() - stats.libs_index_size;
+	stats.libs_index_size = writer.pos() - lib_indexes_start_pos;
 
 	PROF << "to write results to disk";
 
@@ -317,7 +338,7 @@ Symbol_database::Reader::Reader(std::filesystem::path path) {
 		}
 	}
 
-	Extractor ext{std::as_const(data)};
+	Extractor ext{data};
 
 	if (std::string_view{ext[0, sizeof magic_number]} != magic_number) {
 		throw std::runtime_error{std::format("{} is not a valid symbol database, magic number mismatch", path.c_str())};
@@ -332,8 +353,6 @@ Symbol_database::Reader::Reader(std::filesystem::path path) {
 
 	sizeof_Lib_Index = ext;
 
-	lib_count = ext.extract_number(sizeof_Lib_Index);
-
 	mangled_symbol_indexes = ext[0, sizeof(File_Offset) * (symbol_count + 1)].data;
 
 	lib_indexes = ext.data;
@@ -345,7 +364,7 @@ Symbol_database::Reader::~Reader() {
 	}
 }
 
-#define SYMBOL_DATABASE_MEMBERS X(data), X(symbol_count), X(sizeof_Lib_Index), X(lib_count), X(mangled_symbol_indexes), X(lib_indexes), X(outdated)
+#define SYMBOL_DATABASE_MEMBERS X(data), X(symbol_count), X(sizeof_Lib_Index), X(mangled_symbol_indexes), X(lib_indexes), X(outdated)
 
 Symbol_database::Reader::Reader(Reader &&other)
 	:
