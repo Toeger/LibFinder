@@ -3,6 +3,7 @@
 #include "color.h"
 #include "profile.h"
 #include "system.h"
+#include "utility.h"
 
 #include <algorithm>
 #include <cassert>
@@ -66,6 +67,15 @@ namespace {
 #else
 #pragma clang diagnostic pop
 #endif
+
+const std::filesystem::path data_base_path = [] {
+	auto username = get_output_from_command("whoami", {});
+	username.pop_back(); //remove newline
+	return "/home/" + username + "/.libfinder";
+}();
+
+//TODO: find a way to share the files between users
+const std::filesystem::path data_base_filepath = data_base_path / "database";
 
 struct Extractor {
 	template <std::unsigned_integral T>
@@ -206,7 +216,7 @@ static std::uint8_t bytes_required_for(std::size_t n) {
 	return retval;
 }
 
-Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::path output_file, const std::vector<std::filesystem::path> &libraries) {
+Symbol_database::Write_stats Symbol_database::Writer::write(const std::vector<std::filesystem::path> &libraries, std::filesystem::path output_file) {
 	Symbol_database::Write_stats stats;
 	std::ofstream file{output_file, std::ios_base::out | std::ios_base::binary};
 	File_Writer writer{file};
@@ -284,7 +294,7 @@ Symbol_database::Write_stats Symbol_database::Writer::write(std::filesystem::pat
 }
 
 std::pair<Symbol_database::Writer, std::vector<std::filesystem::path>>
-Symbol_database::Writer::from_db_file(std::filesystem::path db_file, std::function_ref<bool(std::string_view symbol, std::filesystem::path library)> filter) {
+Symbol_database::Writer::from_db_file(std::function_ref<bool(std::string_view symbol, std::filesystem::path library)> filter, std::filesystem::path db_file) {
 	Reader reader{db_file};
 	Writer writer;
 	std::vector<std::filesystem::path> libraries{""};
@@ -385,6 +395,22 @@ Symbol_database::Reader &Symbol_database::Reader::operator=(Symbol_database::Rea
 	return *this;
 }
 
+Input_Stream<std::filesystem::path,
+			 Bimpl<Symbol_database::Reader::Libraries_Of_Symbol_State, Symbol_database::Reader::libraries_of_symbol_pimpl_info, Symbol_database::Reader &,
+				   std::string_view>,
+			 Symbol_database::Reader::libraries_of_symbol>
+Symbol_database::Reader::libs(std::string_view symbol) {
+	return {*this, symbol};
+}
+
+Input_Stream<std::pair<std::string_view, std::filesystem::path>,
+			 Bimpl<Symbol_database::Reader::Libraries_Of_Prefix_State, Symbol_database::Reader::libraries_of_prefix_pimpl_info, Symbol_database::Reader &,
+				   std::string_view>,
+			 Symbol_database::Reader::libraries_of_prefix>
+Symbol_database::Reader::symbol_libs(std::string_view symbol_prefix) {
+	return {*this, symbol_prefix};
+}
+
 struct Symbol_database::Reader::Symbol_Db_Iterator {
 	using value_type = std::string_view;
 	using difference_type = std::ptrdiff_t;
@@ -455,7 +481,80 @@ Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::end() const
 	return {.index = symbol_count, .reader = this};
 }
 
-void Symbol_database::Reader::libraries_from_symbol(std::string symbol, std::function_ref<void(std::filesystem::path)> callback) const {
+struct Symbol_database::Reader::Libraries_Of_Symbol_State {
+	Libraries_Of_Symbol_State(Symbol_database::Reader &reader, std::string_view symbol)
+		: Libraries_Of_Symbol_State{reader, symbol, std::lower_bound(reader.begin(), reader.end(), symbol)} {}
+	Libraries_Of_Symbol_State(Symbol_database::Reader &reader, std::string_view symbol, Symbol_database::Reader::Symbol_Db_Iterator it)
+		: sizeof_Lib_Index{reader.sizeof_Lib_Index}
+		, lib_indexes{reader.lib_indexes}
+		, data{reader.data} {
+		if (it == reader.end()) { //symbol not found
+			return;
+		}
+		ext = Extractor{reader.data}[it.offset(), (++it).offset()];
+		std::string_view symbol_name = ext;
+		if (symbol != symbol_name) {
+			ext = Extractor{};
+		}
+	}
+	std::uint8_t sizeof_Lib_Index;
+	std::basic_string_view<std::byte> lib_indexes;
+	std::basic_string_view<std::byte> data;
+	Extractor ext;
+};
+
+void Symbol_database::Reader::libraries_of_symbol(std::optional<std::filesystem::path> &result, Libraries_Of_Symbol_State &state) {
+	auto &ext = state.ext;
+	if (ext) {
+		std::uint64_t lib_index = ext.extract_number(state.sizeof_Lib_Index);
+		File_Offset lib_offset = Extractor{state.lib_indexes}[lib_index * sizeof(File_Offset)];
+		result = Extractor{state.data}[lib_offset];
+		return;
+	}
+	result = std::nullopt;
+}
+
+struct Symbol_database::Reader::Libraries_Of_Prefix_State {
+	Libraries_Of_Prefix_State(Symbol_database::Reader &reader_ref, std::string_view prefix_)
+		: reader{&reader_ref}
+		, prefix{prefix_}
+		, iterator{std::lower_bound(reader_ref.begin(), reader_ref.end(), prefix)}
+		, lib_state{reader_ref, prefix, iterator}
+		, symbol{*iterator} {}
+	Symbol_database::Reader *reader;
+	std::string_view prefix;
+	Symbol_database::Reader::Symbol_Db_Iterator iterator;
+	Symbol_database::Reader::Libraries_Of_Symbol_State lib_state;
+	std::string_view symbol;
+};
+
+void Symbol_database::Reader::libraries_of_prefix(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &result,
+												  Libraries_Of_Prefix_State &state) {
+	{
+		auto &reader = *state.reader;
+		const auto &prefix = state.prefix;
+		auto &iterator = state.iterator;
+		auto &lib_state = state.lib_state;
+		auto &symbol = state.symbol;
+
+		std::optional<std::filesystem::path> opt_path;
+		libraries_of_symbol(opt_path, lib_state);
+		if (opt_path.has_value()) {
+			result = {symbol, std::move(*opt_path)};
+			return;
+		}
+		++iterator;
+		symbol = *iterator;
+		if (not symbol.starts_with(prefix)) {
+			result = std::nullopt;
+			return;
+		}
+		lib_state = {reader, symbol, iterator};
+	}
+	return libraries_of_prefix(result, state);
+}
+
+void Symbol_database::Reader::libraries_from_symbol(std::string_view symbol, std::function_ref<void(std::filesystem::path)> callback) const {
 	auto it = std::lower_bound(begin(), end(), symbol);
 	if (it == end() or *it != symbol) {
 		return;
@@ -492,3 +591,11 @@ std::string_view Symbol_database::Reader::get_symbol(std::size_t index) const {
 	File_Offset offset = Extractor{mangled_symbol_indexes}[index * sizeof(File_Offset)];
 	return Extractor{data}[offset];
 }
+
+#include "bimpl.impl"
+
+template struct Bimpl<Symbol_database::Reader::Libraries_Of_Symbol_State, Symbol_database::Reader::libraries_of_symbol_pimpl_info, Symbol_database::Reader &,
+					  std::string_view /*symbol*/>;
+
+template struct Bimpl<Symbol_database::Reader::Libraries_Of_Prefix_State, Symbol_database::Reader::libraries_of_prefix_pimpl_info, Symbol_database::Reader &,
+					  std::string_view /*prefix*/>;

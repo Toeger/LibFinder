@@ -3,6 +3,7 @@
 #include "color.h"
 #include "format.h"
 #include "generate.h"
+#include "input_stream.h"
 #include "libparser.h"
 #include "profile.h"
 #include "symbol_database.h"
@@ -81,7 +82,8 @@ int main(int argc, char *argv[]) try {
 		}
 	}
 	if (program_args.contains("test")) {
-		test_system();
+		//test_system();
+		input_stream_tester();
 		return 0;
 	}
 	if (program_args.contains("profile")) {

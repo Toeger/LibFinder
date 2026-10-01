@@ -19,15 +19,6 @@
 #include <string_view>
 #include <utility>
 
-const std::filesystem::path data_base_path = [] {
-	auto username = get_output_from_command("whoami", {});
-	username.pop_back(); //remove newline
-	return "/home/" + username + "/.libfinder";
-}();
-
-//TODO: find a way to share the files between users
-const std::filesystem::path data_base_filepath = data_base_path / "database";
-
 static std::string_view skip_last(std::string_view sv) {
 	sv.remove_suffix(1);
 	return sv;
@@ -122,12 +113,17 @@ void update(std::vector<std::filesystem::path> file_paths, unsigned int jobs) {
 		Symbol_database::Writer symbol_map;
 		for (std::size_t lib_index = handled_libs++; lib_index < std::size(cfile_paths); lib_index = handled_libs++) {
 			print_status_update(lib_index);
-			auto libs = parse_lib(cfile_paths[lib_index], false, lib_paths);
-			if (libs.empty()) {
+			auto &lib_path = cfile_paths[lib_index];
+			auto symbols = parse_lib(lib_path, false, lib_paths);
+			if (symbols.empty()) {
 				++skipped_libs;
+				if (not lib_path.string().starts_with("/snap/") and not lib_path.string().starts_with("/home/") and
+					std::filesystem::file_size(lib_path) > 100) {
+					std::clog << "Empty lib: " << lib_path << '\n';
+				}
 				continue;
 			}
-			for (auto &symbol : libs) {
+			for (auto &symbol : symbols) {
 				symbol_map.add(std::move(symbol.mangled_name), lib_index);
 			}
 		}
@@ -148,7 +144,7 @@ void update(std::vector<std::filesystem::path> file_paths, unsigned int jobs) {
 	//write results to disk
 	std::cout << "\033[F\033[2K\033[GFound " << number(symbol_map.symbol_count()) << " symbols in " << number(handled_libs - skipped_libs)
 			  << " libraries, writing database..." << std::endl;
-	const auto stats = symbol_map.write(data_base_filepath, std::move(file_paths));
+	const auto stats = symbol_map.write(std::move(file_paths));
 
 	std::cout << "Writing result to " << data_base_filepath << "..." << std::endl;
 	std::cout << "Wrote " << number(stats.unique_symbols) << " unique symbols into " << bytes(stats.symbols_db_size) << " of database with an index of "

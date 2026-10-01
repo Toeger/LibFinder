@@ -1,0 +1,248 @@
+#pragma once
+
+#include "bimpl.h"
+#include "type_name.h"
+
+#include <cstring>
+#include <utility>
+
+#define TEMPLATE template <class Impl, Bimpl_Info pimpl_info, class... Impl_Params>
+#define PIMPL Bimpl<Impl, pimpl_info, Impl_Params...>
+
+TEMPLATE
+PIMPL::Bimpl(Impl_Params... params) {
+	new (&_) Impl(std::forward<decltype(params)>(params)...);
+}
+
+TEMPLATE
+PIMPL::Bimpl(const Bimpl &pimpl) noexcept
+	requires(pimpl_info.nothrow_copyable)
+{
+	new (&_) Impl(pimpl);
+}
+
+TEMPLATE
+PIMPL::Bimpl(const Impl &impl) noexcept
+	requires(pimpl_info.nothrow_copyable)
+{
+	new (&_) Impl(impl);
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(const Bimpl &pimpl) noexcept
+	requires(pimpl_info.nothrow_copyable)
+{
+	+*this = pimpl;
+	return *this;
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(const Impl &impl) noexcept
+	requires(pimpl_info.nothrow_copyable)
+{
+	+*this = impl;
+	return *this;
+}
+
+TEMPLATE
+PIMPL::Bimpl(Bimpl &&other) noexcept
+	requires(pimpl_info.nothrow_movable or pimpl_info.nothrow_copyable)
+{
+	new (&_) Impl(+std::move(other));
+}
+
+TEMPLATE
+PIMPL::Bimpl(Impl &&impl) noexcept
+	requires(pimpl_info.nothrow_movable or pimpl_info.nothrow_copyable)
+{
+	new (&_) Impl(std::move(impl));
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(Bimpl &&other) noexcept
+	requires(pimpl_info.nothrow_movable or pimpl_info.nothrow_copyable)
+{
+	+*this = +std::move(other);
+	return *this;
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(Impl &&impl) noexcept
+	requires(pimpl_info.nothrow_movable or pimpl_info.nothrow_copyable)
+{
+	+*this = std::move(impl);
+	return *this;
+}
+
+TEMPLATE
+PIMPL::Bimpl(const Bimpl &pimpl)
+	requires(pimpl_info.throw_copyable)
+{
+	new (&_) Impl(pimpl);
+}
+
+TEMPLATE
+PIMPL::Bimpl(const Impl &impl)
+	requires(pimpl_info.throw_copyable)
+{
+	new (&_) Impl(impl);
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(const Bimpl &pimpl)
+	requires(pimpl_info.throw_copyable)
+{
+	+*this = pimpl;
+	return *this;
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(const Impl &impl)
+	requires(pimpl_info.throw_copyable)
+{
+	+*this = impl;
+	return *this;
+}
+
+TEMPLATE
+PIMPL::Bimpl(Bimpl &&other)
+	requires(pimpl_info.throw_movable or pimpl_info.throw_copyable)
+{
+	new (&_) Impl(+std::move(other));
+}
+
+TEMPLATE
+PIMPL::Bimpl(Impl &&impl)
+	requires(pimpl_info.throw_movable or pimpl_info.throw_copyable)
+{
+	new (&_) Impl(std::move(impl));
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(Bimpl &&other)
+	requires(pimpl_info.throw_movable or pimpl_info.throw_copyable)
+{
+	+*this = +std::move(other);
+	return *this;
+}
+
+TEMPLATE
+PIMPL &PIMPL::operator=(Impl &&impl)
+	requires(pimpl_info.throw_movable or pimpl_info.throw_copyable)
+{
+	+*this = std::move(impl);
+	return *this;
+}
+
+#include <string>
+
+constexpr std::size_t digits_of(std::size_t n) {
+	if (n == 0) {
+		return 1;
+	}
+	std::size_t result = 0;
+	for (std::size_t i = n; i; i /= 10) {
+		result++;
+	}
+	return result;
+}
+
+constexpr std::string to_string(std::size_t n) {
+	if (n == 0) {
+		return "0";
+	}
+	auto digits = digits_of(n);
+	std::size_t pos = digits;
+	std::string result;
+	result.resize(digits);
+	for (std::size_t i = n; i; i /= 10) {
+		result[--pos] = '0' + i % 10;
+	}
+	return result;
+}
+
+struct CTS {
+	constexpr std::size_t size() const {
+		return s.size();
+	}
+	constexpr const char *data() const {
+		return s.data();
+	}
+	std::string s;
+};
+
+static constexpr CTS operator+(CTS lhs, CTS rhs) {
+	return {lhs.s + rhs.s};
+}
+
+static constexpr CTS operator+(CTS lhs, const char *rhs) {
+	return {lhs.s + rhs};
+}
+
+static constexpr CTS operator+(CTS lhs, std::size_t rhs) {
+	return {lhs.s + to_string(rhs)};
+}
+
+static constexpr CTS operator+(CTS lhs, std::string_view rhs) {
+	return {lhs.s + rhs};
+}
+
+TEMPLATE
+PIMPL::~Bimpl() {
+	static_assert(pimpl_info.size >= sizeof(Impl),
+				  CTS{} + "Insufficient buffer size " + pimpl_info.size + " for type " + type_name<Impl>() + " of size " + sizeof(Impl));
+	static_assert(pimpl_info.alignment >= alignof(Impl),
+				  CTS{} + "Insufficient alignment " + pimpl_info.alignment + " for type " + type_name<Impl>() + " of alignment " + alignof(Impl));
+	static_assert(not pimpl_info.wasteless or pimpl_info.size == sizeof(Impl),
+				  CTS{} + "Wasteful buffer size " + pimpl_info.size + " for type " + type_name<Impl>() + " of size " + sizeof(Impl));
+	static_assert(not pimpl_info.wasteless or pimpl_info.alignment == alignof(Impl),
+				  CTS{} + "Wasteful alignment " + pimpl_info.alignment + " for type " + type_name<Impl>() + " of alignment " + alignof(Impl));
+	constexpr bool is_nothrow_copy_constructible = std::is_nothrow_constructible_v<Impl, const Impl &>;
+	constexpr bool should_be_nothrow_copy_constructible = pimpl_info.nothrow_copyable;
+	constexpr bool wastes_nothrow_copy_constructible = is_nothrow_copy_constructible and not should_be_nothrow_copy_constructible;
+	constexpr bool is_nothrow_move_constructible = std::is_nothrow_constructible_v<Impl, Impl &&>;
+	constexpr bool should_be_nothrow_move_constructible = pimpl_info.nothrow_copyable or pimpl_info.nothrow_movable;
+	constexpr bool wastes_nothrow_move_constructible = is_nothrow_move_constructible and not should_be_nothrow_move_constructible;
+	constexpr bool wastes_nothrow_constructible = wastes_nothrow_copy_constructible or wastes_nothrow_move_constructible;
+	constexpr bool is_nothrow_copy_assignable = std::is_nothrow_assignable_v<Impl &, const Impl &>;
+	constexpr bool should_be_nothrow_copy_assignable = pimpl_info.nothrow_copyable;
+	constexpr bool wastes_nothrow_copy_assignable = is_nothrow_copy_assignable and not should_be_nothrow_copy_assignable;
+	constexpr bool is_nothrow_move_assignable = std::is_nothrow_assignable_v<Impl &, Impl &&>;
+	constexpr bool should_be_nothrow_move_assignable = pimpl_info.nothrow_copyable or pimpl_info.nothrow_movable;
+	constexpr bool wastes_nothrow_move_assignable = is_nothrow_move_assignable and not should_be_nothrow_move_assignable;
+	constexpr bool wastes_nothrow_assignable = wastes_nothrow_copy_assignable or wastes_nothrow_move_assignable;
+	constexpr bool wasteful = wastes_nothrow_constructible or wastes_nothrow_assignable;
+	static_assert(not(pimpl_info.wasteless and wasteful), CTS{} + type_name<Impl>() + " could be nothrow but is not");
+	(+*this).~Impl();
+}
+
+TEMPLATE
+PIMPL::operator Impl &() & {
+	return +*this;
+}
+
+TEMPLATE
+PIMPL::operator Impl &&() && {
+	return +std::move(*this);
+}
+
+TEMPLATE
+PIMPL::operator const Impl &() const {
+	return +*this;
+}
+
+TEMPLATE
+Impl &PIMPL::operator+() & {
+	return reinterpret_cast<Impl &>(_);
+}
+TEMPLATE
+Impl &&PIMPL::operator+() && {
+	return reinterpret_cast<Impl &&>(_);
+}
+TEMPLATE
+const Impl &PIMPL::operator+() const {
+	return reinterpret_cast<const Impl &>(_);
+}
+
+#undef TEMPLATE
+#undef PIMPL

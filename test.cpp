@@ -2,6 +2,7 @@
 #include "asserts.h"
 #include "libparser.h"
 #include "symbol_database.h"
+
 #include <set>
 
 static void test_symbol_loading() {

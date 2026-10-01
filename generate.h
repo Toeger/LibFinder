@@ -6,5 +6,3 @@
 
 void update(unsigned int jobs = std::thread::hardware_concurrency());
 void update(std::vector<std::filesystem::path> libraries, unsigned int jobs = std::thread::hardware_concurrency());
-
-extern const std::filesystem::path data_base_filepath;

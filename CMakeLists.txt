@@ -9,16 +9,19 @@ set(SRC_LIST
 	color.cpp
 	format.cpp
 	generate.cpp
+	input_stream.cpp
 	libclang.cpp
 	libparser.cpp
 	libtooling.cpp
 	main.cpp
+	bimpl.cpp
 	profile.cpp
 	raii.cpp
 	symbol_database.cpp
 	symbol_matcher.cpp
 	system.cpp
 	test.cpp
+	type_name.h
 	utility.cpp
 )
 list(TRANSFORM SRC_LIST REPLACE "\.cpp$" ".h" OUTPUT_VARIABLE HEADER_LIST)
