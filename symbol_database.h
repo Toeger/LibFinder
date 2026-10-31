@@ -1,7 +1,7 @@
 #pragma once
 
 #include "bimpl.h"
-#include "input_stream.h"
+#include "iterable.h"
 
 #include <filesystem>
 #include <functional>
@@ -36,17 +36,8 @@ namespace Symbol_database {
 
 	struct Reader {
 		private:
-		struct Libraries_Of_Symbol_State;
-		friend Libraries_Of_Symbol_State;
-		static constexpr Bimpl_Info libraries_of_symbol_pimpl_info{.size = 56, .nothrow_copyable = true};
-		static void libraries_of_symbol(std::optional<std::filesystem::path> &result, Libraries_Of_Symbol_State &state);
-		static_assert(input_stream_compatible<&libraries_of_symbol>);
-
-		struct Libraries_Of_Prefix_State;
-		friend Libraries_Of_Prefix_State;
-		static constexpr Bimpl_Info libraries_of_prefix_pimpl_info{.size = 112, .nothrow_copyable = true};
-		static void libraries_of_prefix(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &result, Libraries_Of_Prefix_State &state);
-		static_assert(input_stream_compatible<&libraries_of_prefix>);
+		struct Libraries_Of_Symbol_Iterable;
+		struct Symbols_Libraries_Of_Prefix_Iterable;
 
 		public:
 		Reader(std::filesystem::path path = data_base_filepath);
@@ -54,25 +45,14 @@ namespace Symbol_database {
 		Reader(Reader &&other);
 		Reader &operator=(Reader &&other);
 
-		Input_Stream<std::filesystem::path,
-					 Bimpl<Libraries_Of_Symbol_State, libraries_of_symbol_pimpl_info, Symbol_database::Reader &, std::string_view /*symbol*/>,
-					 libraries_of_symbol>
-		libs(std::string_view symbol);
+		Libraries_Of_Symbol_Iterable libs(std::string_view symbol);
+		Symbols_Libraries_Of_Prefix_Iterable symbol_libs(std::string_view symbol_prefix);
 
-		Input_Stream<std::pair<std::string_view /*symbol*/, std::filesystem::path>,
-					 Bimpl<Libraries_Of_Prefix_State, libraries_of_prefix_pimpl_info, Symbol_database::Reader &, std::string_view /*symbol prefix*/>,
-					 libraries_of_prefix>
-		symbol_libs(std::string_view symbol_prefix);
-
-		void libraries_from_symbol(std::string_view symbol, std::function_ref<void(std::filesystem::path)> callback) const;
-		void libraries_from_prefix(std::string symbol_prefixes, std::function_ref<void(std::string_view symbol, std::filesystem::path lib)> callback) const;
 		bool is_outdated() const;
 
 		private:
 		struct Symbol_Db_Iterator;
 		std::string_view get_symbol(std::size_t index) const;
-		void get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end,
-						   std::invocable<std::string_view /*mangled_symbol*/, std::filesystem::path /*lib*/> auto &&callback) const;
 		Symbol_Db_Iterator begin() const;
 		Symbol_Db_Iterator end() const;
 
@@ -82,5 +62,28 @@ namespace Symbol_database {
 		std::basic_string_view<std::byte> mangled_symbol_indexes;
 		std::basic_string_view<std::byte> lib_indexes;
 		bool outdated;
+
+		struct Libraries_Of_Symbol_Impl;
+		friend Libraries_Of_Symbol_Impl;
+		static constexpr Bimpl_Info libraries_of_symbol_pimpl_info{.size = 56, .nothrow_copyable = true, .wasteless = true};
+		struct Libraries_Of_Symbol_Iterable : Bimpl<Libraries_Of_Symbol_Impl, libraries_of_symbol_pimpl_info, Symbol_database::Reader &, std::string_view>,
+											  Iterable {
+			void assign_next(std::optional<std::filesystem::path> &result);
+		};
+
+		struct Libraries_Of_Prefix_Impl;
+		friend Libraries_Of_Prefix_Impl;
+		static constexpr Bimpl_Info libraries_of_prefix_pimpl_info{.size = 112, .nothrow_copyable = true, .wasteless = true};
+		struct Symbols_Libraries_Of_Prefix_Iterable
+			: Bimpl<Libraries_Of_Prefix_Impl, libraries_of_prefix_pimpl_info, Symbol_database::Reader &, std::string_view>,
+			  Iterable {
+			void assign_next(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &result);
+		};
 	};
 }; // namespace Symbol_database
+
+extern template struct Bimpl<Symbol_database::Reader::Libraries_Of_Symbol_Impl, Symbol_database::Reader::libraries_of_symbol_pimpl_info,
+							 Symbol_database::Reader &, std::string_view>;
+
+extern template struct Bimpl<Symbol_database::Reader::Libraries_Of_Prefix_Impl, Symbol_database::Reader::libraries_of_prefix_pimpl_info,
+							 Symbol_database::Reader &, std::string_view>;

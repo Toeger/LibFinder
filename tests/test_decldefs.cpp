@@ -1,4 +1,3 @@
-#include "color.h"
 #include "libclang.h"
 #include "libparser.h"
 #include "utility.h"

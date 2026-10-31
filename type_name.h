@@ -6,22 +6,24 @@
 
 template <typename T>
 consteval auto type_name() {
-#define PREFIX
+#define FUNCTION_NAME "type_name"
 	std::string_view name, prefix, suffix;
 #ifdef __clang__
 	name = __PRETTY_FUNCTION__;
-	prefix = "auto " PREFIX "type_name() [T = ";
+	prefix = "auto " FUNCTION_NAME "() [T = ";
 	suffix = "]";
 #elif defined(__GNUC__)
 	name = __PRETTY_FUNCTION__;
-	prefix = "consteval auto " PREFIX "type_name() [with T = ";
+	prefix = "consteval auto " FUNCTION_NAME "() [with T = ";
 	suffix = "]";
 #elif defined(_MSC_VER)
 	name = __FUNCSIG__;
-	prefix = "auto __cdecl " PREFIX "type_name<";
+	prefix = "auto __cdecl " FUNCTION_NAME "<";
 	suffix = ">(void)";
+#else
+#error "Unknown compiler"
 #endif
-#undef PREFIX
+#undef FUNCTION_NAME
 	name.remove_prefix(prefix.size());
 	name.remove_suffix(suffix.size());
 	if (name == "std::basic_string<char>") {

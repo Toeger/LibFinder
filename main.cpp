@@ -3,7 +3,7 @@
 #include "color.h"
 #include "format.h"
 #include "generate.h"
-#include "input_stream.h"
+#include "iterable.h"
 #include "libparser.h"
 #include "profile.h"
 #include "symbol_database.h"
@@ -82,8 +82,8 @@ int main(int argc, char *argv[]) try {
 		}
 	}
 	if (program_args.contains("test")) {
-		//test_system();
-		input_stream_tester();
+		test_system();
+		//iterable_tester();
 		return 0;
 	}
 	if (program_args.contains("profile")) {
@@ -104,7 +104,9 @@ int main(int argc, char *argv[]) try {
 		std::cout << "All symbols that have the prefix \"" << prefix << "\" and their libraries:\n";
 		Symbol_database::Reader reader{data_base_filepath};
 		std::map<std::string_view, std::vector<std::filesystem::path>> symbols_libs;
-		reader.libraries_from_prefix(prefix, [&symbols_libs](std::string_view symbol, std::filesystem::path lib) { symbols_libs[symbol].push_back(lib); });
+		for (auto &[symbol, lib] : reader.symbol_libs(prefix)) {
+			symbols_libs[symbol].push_back(lib);
+		}
 		for (auto &[symbol, libs] : symbols_libs) {
 			std::cout << symbol << '\n';
 			std::sort(std::begin(libs), std::end(libs));

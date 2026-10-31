@@ -298,15 +298,15 @@ Symbol_database::Writer::from_db_file(std::function_ref<bool(std::string_view sy
 	Reader reader{db_file};
 	Writer writer;
 	std::vector<std::filesystem::path> libraries{""};
-	reader.libraries_from_prefix("", [&libraries, &writer, filter](std::string_view symbol, std::filesystem::path lib) {
+	for (auto &[symbol, lib] : reader.symbol_libs("")) {
 		if (not filter(symbol, lib)) {
-			return;
+			continue;
 		}
 		if (lib != libraries.back()) {
 			libraries.push_back(lib);
 		}
 		writer.add(std::string{symbol}, libraries.size() - 1);
-	});
+	}
 	return {writer, libraries};
 }
 
@@ -395,20 +395,12 @@ Symbol_database::Reader &Symbol_database::Reader::operator=(Symbol_database::Rea
 	return *this;
 }
 
-Input_Stream<std::filesystem::path,
-			 Bimpl<Symbol_database::Reader::Libraries_Of_Symbol_State, Symbol_database::Reader::libraries_of_symbol_pimpl_info, Symbol_database::Reader &,
-				   std::string_view>,
-			 Symbol_database::Reader::libraries_of_symbol>
-Symbol_database::Reader::libs(std::string_view symbol) {
-	return {*this, symbol};
+Symbol_database::Reader::Libraries_Of_Symbol_Iterable Symbol_database::Reader::libs(std::string_view symbol) {
+	return {{*this, symbol}};
 }
 
-Input_Stream<std::pair<std::string_view, std::filesystem::path>,
-			 Bimpl<Symbol_database::Reader::Libraries_Of_Prefix_State, Symbol_database::Reader::libraries_of_prefix_pimpl_info, Symbol_database::Reader &,
-				   std::string_view>,
-			 Symbol_database::Reader::libraries_of_prefix>
-Symbol_database::Reader::symbol_libs(std::string_view symbol_prefix) {
-	return {*this, symbol_prefix};
+Symbol_database::Reader::Symbols_Libraries_Of_Prefix_Iterable Symbol_database::Reader::symbol_libs(std::string_view symbol_prefix) {
+	return {{*this, symbol_prefix}};
 }
 
 struct Symbol_database::Reader::Symbol_Db_Iterator {
@@ -458,21 +450,6 @@ struct Symbol_database::Reader::Symbol_Db_Iterator {
 	const Symbol_database::Reader *reader;
 };
 
-void Symbol_database::Reader::get_libraries(Symbol_Db_Iterator begin, Symbol_Db_Iterator end,
-											std::invocable<std::string_view, std::filesystem::path> auto &&callback) const {
-	while (begin < end) {
-		auto start = begin.offset();
-		begin++;
-		auto ext = Extractor{data}[start, begin.offset()];
-		const std::string_view symbol = ext;
-		while (ext) {
-			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
-			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
-			callback(symbol, Extractor{data}[lib_offset]);
-		}
-	}
-}
-
 Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::begin() const {
 	return {.index = 0, .reader = this};
 }
@@ -481,10 +458,10 @@ Symbol_database::Reader::Symbol_Db_Iterator Symbol_database::Reader::end() const
 	return {.index = symbol_count, .reader = this};
 }
 
-struct Symbol_database::Reader::Libraries_Of_Symbol_State {
-	Libraries_Of_Symbol_State(Symbol_database::Reader &reader, std::string_view symbol)
-		: Libraries_Of_Symbol_State{reader, symbol, std::lower_bound(reader.begin(), reader.end(), symbol)} {}
-	Libraries_Of_Symbol_State(Symbol_database::Reader &reader, std::string_view symbol, Symbol_database::Reader::Symbol_Db_Iterator it)
+struct Symbol_database::Reader::Libraries_Of_Symbol_Impl : Iterable {
+	Libraries_Of_Symbol_Impl(Symbol_database::Reader &reader, std::string_view symbol)
+		: Libraries_Of_Symbol_Impl{reader, symbol, std::lower_bound(reader.begin(), reader.end(), symbol)} {}
+	Libraries_Of_Symbol_Impl(Symbol_database::Reader &reader, std::string_view symbol, Symbol_database::Reader::Symbol_Db_Iterator it)
 		: sizeof_Lib_Index{reader.sizeof_Lib_Index}
 		, lib_indexes{reader.lib_indexes}
 		, data{reader.data} {
@@ -497,91 +474,55 @@ struct Symbol_database::Reader::Libraries_Of_Symbol_State {
 			ext = Extractor{};
 		}
 	}
+
+	void assign_next(std::optional<std::filesystem::path> &result) {
+		if (ext) {
+			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
+			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
+			result = Extractor{data}[lib_offset];
+			return;
+		}
+		result = std::nullopt;
+	}
+
 	std::uint8_t sizeof_Lib_Index;
 	std::basic_string_view<std::byte> lib_indexes;
 	std::basic_string_view<std::byte> data;
 	Extractor ext;
 };
 
-void Symbol_database::Reader::libraries_of_symbol(std::optional<std::filesystem::path> &result, Libraries_Of_Symbol_State &state) {
-	auto &ext = state.ext;
-	if (ext) {
-		std::uint64_t lib_index = ext.extract_number(state.sizeof_Lib_Index);
-		File_Offset lib_offset = Extractor{state.lib_indexes}[lib_index * sizeof(File_Offset)];
-		result = Extractor{state.data}[lib_offset];
-		return;
-	}
-	result = std::nullopt;
-}
-
-struct Symbol_database::Reader::Libraries_Of_Prefix_State {
-	Libraries_Of_Prefix_State(Symbol_database::Reader &reader_ref, std::string_view prefix_)
+struct Symbol_database::Reader::Libraries_Of_Prefix_Impl {
+	Libraries_Of_Prefix_Impl(Symbol_database::Reader &reader_ref, std::string_view prefix_)
 		: reader{&reader_ref}
 		, prefix{prefix_}
 		, iterator{std::lower_bound(reader_ref.begin(), reader_ref.end(), prefix)}
 		, lib_state{reader_ref, prefix, iterator}
 		, symbol{*iterator} {}
+
+	void assign_next(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &result) {
+		{
+			std::optional<std::filesystem::path> opt_path = lib_state.get_next();
+			if (opt_path.has_value()) {
+				result = {symbol, std::move(*opt_path)};
+				return;
+			}
+			++iterator;
+			symbol = *iterator;
+			if (not symbol.starts_with(prefix)) {
+				result = std::nullopt;
+				return;
+			}
+			lib_state = {*reader, symbol, iterator};
+		}
+		return assign_next(result);
+	}
+
 	Symbol_database::Reader *reader;
 	std::string_view prefix;
 	Symbol_database::Reader::Symbol_Db_Iterator iterator;
-	Symbol_database::Reader::Libraries_Of_Symbol_State lib_state;
+	Symbol_database::Reader::Libraries_Of_Symbol_Impl lib_state;
 	std::string_view symbol;
 };
-
-void Symbol_database::Reader::libraries_of_prefix(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &result,
-												  Libraries_Of_Prefix_State &state) {
-	{
-		auto &reader = *state.reader;
-		const auto &prefix = state.prefix;
-		auto &iterator = state.iterator;
-		auto &lib_state = state.lib_state;
-		auto &symbol = state.symbol;
-
-		std::optional<std::filesystem::path> opt_path;
-		libraries_of_symbol(opt_path, lib_state);
-		if (opt_path.has_value()) {
-			result = {symbol, std::move(*opt_path)};
-			return;
-		}
-		++iterator;
-		symbol = *iterator;
-		if (not symbol.starts_with(prefix)) {
-			result = std::nullopt;
-			return;
-		}
-		lib_state = {reader, symbol, iterator};
-	}
-	return libraries_of_prefix(result, state);
-}
-
-void Symbol_database::Reader::libraries_from_symbol(std::string_view symbol, std::function_ref<void(std::filesystem::path)> callback) const {
-	auto it = std::lower_bound(begin(), end(), symbol);
-	if (it == end() or *it != symbol) {
-		return;
-	}
-	get_libraries(it, it + 1, [&callback](std::string_view, std::filesystem::path path) { callback(path); });
-}
-
-void Symbol_database::Reader::libraries_from_prefix(std::string symbol_prefixes,
-													std::function_ref<void(std::string_view symbol, std::filesystem::path lib)> callback) const {
-	assert(([&] {
-		auto first_non_sorted = std::is_sorted_until(begin(), end());
-		if (first_non_sorted != end()) {
-			std::cout << "Searching " << end().index - 1 << " symbols" << std::endl;
-			std::cout << +(*first_non_sorted).front() << " at index " << first_non_sorted.index << std::endl;
-			std::cout << " with libraries " << first_non_sorted.index << '\n';
-			get_libraries(first_non_sorted, first_non_sorted + 1, [](std::string_view, std::filesystem::path lib) { std::cout << '\t' << lib << std::endl; });
-			return false;
-		}
-		return true;
-	}()));
-	const auto start_it = std::lower_bound(begin(), end(), symbol_prefixes);
-	auto end_it = start_it;
-	while (end_it != end() and (*end_it).starts_with(symbol_prefixes)) {
-		++end_it;
-	}
-	return get_libraries(start_it, end_it, callback);
-}
 
 bool Symbol_database::Reader::is_outdated() const {
 	return outdated;
@@ -592,10 +533,18 @@ std::string_view Symbol_database::Reader::get_symbol(std::size_t index) const {
 	return Extractor{data}[offset];
 }
 
+void Symbol_database::Reader::Libraries_Of_Symbol_Iterable::assign_next(std::optional<std::filesystem::path> &result) {
+	(+*this).assign_next(result);
+}
+
+void Symbol_database::Reader::Symbols_Libraries_Of_Prefix_Iterable::assign_next(std::optional<std::pair<std::string_view, std::filesystem::path>> &result) {
+	(+*this).assign_next(result);
+}
+
 #include "bimpl.impl"
 
-template struct Bimpl<Symbol_database::Reader::Libraries_Of_Symbol_State, Symbol_database::Reader::libraries_of_symbol_pimpl_info, Symbol_database::Reader &,
-					  std::string_view /*symbol*/>;
+template struct Bimpl<Symbol_database::Reader::Libraries_Of_Symbol_Impl, Symbol_database::Reader::libraries_of_symbol_pimpl_info, Symbol_database::Reader &,
+					  std::string_view>;
 
-template struct Bimpl<Symbol_database::Reader::Libraries_Of_Prefix_State, Symbol_database::Reader::libraries_of_prefix_pimpl_info, Symbol_database::Reader &,
-					  std::string_view /*prefix*/>;
+template struct Bimpl<Symbol_database::Reader::Libraries_Of_Prefix_Impl, Symbol_database::Reader::libraries_of_prefix_pimpl_info, Symbol_database::Reader &,
+					  std::string_view>;

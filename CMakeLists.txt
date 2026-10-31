@@ -7,9 +7,10 @@ set(SRC_LIST
 	asserts.cpp
 	cast.cpp
 	color.cpp
+	compile_time_string.cpp
 	format.cpp
 	generate.cpp
-	input_stream.cpp
+	iterable.cpp
 	libclang.cpp
 	libparser.cpp
 	libtooling.cpp
@@ -58,7 +59,8 @@ add_custom_target(MISC_FILES
 
 find_package(Catch2 REQUIRED)
 aux_source_directory(tests SRC_LIST_TESTS)
-list(REMOVE_ITEM SRC_LIST "./main.cpp")
+list(REMOVE_ITEM SRC_LIST "./main.cpp" "main.cpp")
+message(${SRC_LIST})
 add_executable(${PROJECT_NAME}_tests ${SRC_LIST} ${SRC_LIST_TESTS})
 target_include_directories(${PROJECT_NAME}_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(${PROJECT_NAME}_tests SYSTEM PRIVATE ${CLANG_INCLUDE_DIRS})

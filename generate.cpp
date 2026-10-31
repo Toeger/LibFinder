@@ -1,6 +1,7 @@
 #include "generate.h"
 #include "cast.h"
 #include "format.h"
+#include "iterable.h"
 #include "libparser.h"
 #include "profile.h"
 #include "symbol_database.h"
@@ -14,30 +15,35 @@
 #include <future>
 #include <iostream>
 #include <print>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
 
-static std::string_view skip_last(std::string_view sv) {
-	sv.remove_suffix(1);
-	return sv;
-}
-
-void get_locate_libraries(std::invocable<std::filesystem::path> auto &&callback) {
-	std::vector<std::filesystem::path> queue;
-	//add all lib*.so and lib*.a files to queue
-	for (auto line :
-		 skip_last(get_output_from_command("locate", {"-m0bser", "--regextype", "awk", "^lib.*\\.(so|a)$"})) | std::views::split(std::string_view{"", 1})) {
-		assert(not line.empty());
-		assert(line.front() == '/');
-		callback(std::filesystem::path{std::string_view{line}});
+struct Locate_Libraries : Iterable {
+	Locate_Libraries()
+		: output{get_output_from_command("locate", {"-m0bser", "--regextype", "awk", "^lib.*\\.(so|a)$"})}
+		, pos{0} {
+		output.pop_back();
 	}
-}
+	void assign_next(std::optional<std::filesystem::path> &result) {
+		if (pos >= output.size()) {
+			result = std::nullopt;
+			return;
+		}
+		std::string_view line = output.data() + pos;
+		assert(not line.empty());
+#ifdef __linux__
+		assert(line.front() == '/');
+#endif
+		result = line;
+		pos += line.size() + 1;
+	}
+	std::string output;
+	std::size_t pos;
+};
 
 void update(unsigned int jobs) {
-	std::vector<std::filesystem::path> file_paths;
-	get_locate_libraries([&file_paths](std::filesystem::path lib) { file_paths.push_back(lib); });
+	std::vector<std::filesystem::path> file_paths = Locate_Libraries{};
 	update(file_paths, jobs);
 }
 

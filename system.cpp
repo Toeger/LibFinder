@@ -63,79 +63,114 @@ constexpr std::strong_ordering number_string_compare(std::string_view lhs, std::
 	}
 }
 
-void reverse_lines(std::string_view data, std::invocable<std::string_view> auto &&callback, const char separator = '\n') {
-	for (;;) {
-		const auto pos = data.rfind(separator);
-		if (pos == data.npos) {
-			if (not data.empty()) {
-				callback(std::move(data));
+struct Reverse_Lines : Iterable {
+	std::string_view lines;
+	char separator = '\n';
+
+	std::optional<std::string_view> get_next() {
+		const auto pos = lines.rfind(separator);
+		if (pos == lines.npos) {
+			if (not lines.empty()) {
+				auto result = std::move(lines);
+				lines = {};
+				return result;
 			}
-			return;
+			return std::nullopt;
 		}
-		std::string_view line = data.substr(pos);
-		data.remove_suffix(line.size());
+		std::string_view line = lines.substr(pos);
+		lines.remove_suffix(line.size());
 		line.remove_prefix(1);
-		if (line.empty()) {
-			continue;
-		}
-		callback(std::move(line));
+		return line;
 	}
-}
+};
 
 struct Recently_Installed_Dpkg_Package {
 	std::string_view package_name;
 	std::string_view timestamp;
 };
 
-void recently_installed_dpkg_packages(std::invocable<Recently_Installed_Dpkg_Package> auto &&callback) {
-	std::vector<std::filesystem::path> dpkg_logs;
-	for (const auto &dir : std::filesystem::directory_iterator{"/var/log/"}) {
-		if (not std::string_view{dir.path().filename().c_str()}.starts_with("dpkg.")) {
-			continue;
+struct Recently_Installed_Dpkg_Packages : Iterable {
+	Recently_Installed_Dpkg_Packages() {
+		for (const auto &dir : std::filesystem::directory_iterator{"/var/log/"}) {
+			if (not std::string_view{dir.path().filename().c_str()}.starts_with("dpkg.")) {
+				continue;
+			}
+			if (dir.is_directory()) {
+				continue;
+			}
+			dpkg_logs.push_back(dir);
 		}
-		if (dir.is_directory()) {
-			continue;
-		}
-		dpkg_logs.push_back(dir);
-	}
-	std::ranges::sort(dpkg_logs, [](const std::filesystem::path &lhs, const std::filesystem::path &rhs) {
-		//throwing away the strong ordering makes me cry
-		return number_string_compare(std::string_view{lhs.c_str()}, std::string_view{rhs.c_str()}) == std::strong_ordering::less;
-	});
+		std::ranges::sort(dpkg_logs, [](const std::filesystem::path &lhs, const std::filesystem::path &rhs) {
+			//throwing away the strong ordering makes me cry
+			return number_string_compare(std::string_view{lhs.c_str()}, std::string_view{rhs.c_str()}) == std::strong_ordering::greater;
+		});
 
-	std::regex dpkg_entry{R"((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) status installed ([^:]+):.*)"};
-	for (auto &dpkg_log : dpkg_logs) {
-		const auto packages = get_output_from_command(std::string_view{dpkg_log.c_str()}.ends_with(".gz") ? "zgrep" : "grep", {" status installed ", dpkg_log});
-		reverse_lines(packages, [&](std::string_view line) {
+		const auto &dpkg_log = dpkg_logs.back();
+		packages = get_output_from_command(std::string_view{dpkg_log.c_str()}.ends_with(".gz") ? "zgrep" : "grep", {" status installed ", dpkg_log});
+		package_input_stream = Reverse_Lines{.lines = packages};
+	}
+
+	void assign_next(std::optional<Recently_Installed_Dpkg_Package> &result) {
+		if (auto log_entry = package_input_stream.get_next(); log_entry.has_value()) {
+			auto &line = *log_entry;
+			if (line.empty()) {
+				return assign_next(result);
+			}
 			std::match_results<std::string_view::const_iterator> match;
 			if (std::regex_match(std::begin(line), std::end(line), match, dpkg_entry)) {
-				callback(Recently_Installed_Dpkg_Package{
+				result = Recently_Installed_Dpkg_Package{
 					.package_name = {match[2].first, match[2].second},
 					.timestamp = {match[1].first, match[1].second},
-				});
+				};
+				return;
 			} else {
-				throw std::runtime_error{std::format("Failed parsing dpkg log in {} with line {}", dpkg_log, line)};
+				throw std::runtime_error{std::format("Failed parsing dpkg log in {} with line {}", dpkg_logs.back(), line)};
 			}
-		});
-	}
-}
-
-void dpkg_packages(std::invocable<std::string_view> auto &&callback) {
-	for (auto range : get_output_from_command("dpkg", {"-l"}) | std::views::split(std::string_view{"\n"})) {
-		std::string_view line{range};
-		if (not line.starts_with("ii ")) {
-			continue;
+		} else {
+			dpkg_logs.pop_back();
+			if (dpkg_logs.empty()) {
+				result = std::nullopt;
+				return;
+			}
+			packages = get_output_from_command(std::string_view{dpkg_logs.back().c_str()}.ends_with(".gz") ? "zgrep" : "grep",
+											   {" status installed ", dpkg_logs.back()});
+			package_input_stream = Reverse_Lines{{}, packages};
+			return assign_next(result);
 		}
-		line.remove_prefix(4);
-		callback(line.substr(0, line.find(' ')));
 	}
-}
+
+	std::vector<std::filesystem::path> dpkg_logs;
+	std::string packages;
+	Reverse_Lines package_input_stream;
+	static const std::regex dpkg_entry;
+};
+
+const std::regex Recently_Installed_Dpkg_Packages::dpkg_entry{R"((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) status installed ([^:]+):.*)"};
+
+struct Dpkg_Packages : Iterable {
+	void assign_next(std::optional<std::string_view> &result) {
+		std::string_view res = view.subview(0, view.find("\n"));
+		if (res.empty()) {
+			result = std::nullopt;
+			return;
+		}
+		view.remove_prefix(res.size() + 1);
+		if (not res.starts_with("ii ")) {
+			return assign_next(result);
+		}
+		res.remove_prefix(4);
+		result = res.substr(0, res.find(' '));
+	}
+
+	std::string packages = get_output_from_command("dpkg", {"-l"});
+	std::string_view view = packages;
+};
 
 void test_system() {
 	profile::target = &std::cerr;
 	static const std::regex lib_file{R"(.*/lib[^/]*\.(a|so)$)"};
 	std::vector<std::string> dpkg_command{"-L"};
-	dpkg_packages([&dpkg_command](std::string_view package) { dpkg_command.push_back(std::string{package}); });
+	dpkg_command.append_range(Dpkg_Packages{} | [](std::string_view sv) { return std::string{sv}; });
 	PROF << "to get list of packages";
 
 	std::vector<std::filesystem::path> libfiles;

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "bimpl.h"
+#include "compile_time_string.h"
 #include "type_name.h"
 
-#include <cstring>
 #include <utility>
 
 #define TEMPLATE template <class Impl, Bimpl_Info pimpl_info, class... Impl_Params>
@@ -132,59 +132,6 @@ PIMPL &PIMPL::operator=(Impl &&impl)
 {
 	+*this = std::move(impl);
 	return *this;
-}
-
-#include <string>
-
-constexpr std::size_t digits_of(std::size_t n) {
-	if (n == 0) {
-		return 1;
-	}
-	std::size_t result = 0;
-	for (std::size_t i = n; i; i /= 10) {
-		result++;
-	}
-	return result;
-}
-
-constexpr std::string to_string(std::size_t n) {
-	if (n == 0) {
-		return "0";
-	}
-	auto digits = digits_of(n);
-	std::size_t pos = digits;
-	std::string result;
-	result.resize(digits);
-	for (std::size_t i = n; i; i /= 10) {
-		result[--pos] = '0' + i % 10;
-	}
-	return result;
-}
-
-struct CTS {
-	constexpr std::size_t size() const {
-		return s.size();
-	}
-	constexpr const char *data() const {
-		return s.data();
-	}
-	std::string s;
-};
-
-static constexpr CTS operator+(CTS lhs, CTS rhs) {
-	return {lhs.s + rhs.s};
-}
-
-static constexpr CTS operator+(CTS lhs, const char *rhs) {
-	return {lhs.s + rhs};
-}
-
-static constexpr CTS operator+(CTS lhs, std::size_t rhs) {
-	return {lhs.s + to_string(rhs)};
-}
-
-static constexpr CTS operator+(CTS lhs, std::string_view rhs) {
-	return {lhs.s + rhs};
 }
 
 TEMPLATE

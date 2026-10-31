@@ -1,12 +1,10 @@
 #include "color.h"
-#include "generate.h"
 #include "libclang.h"
 #include "libparser.h"
 #include "symbol_database.h"
 #include "utility.h"
 
 #include <catch2/catch_all.hpp>
-#include <iostream>
 
 TEST_CASE("Including iostream") {
 	const std::filesystem::path test_dir{TEST_DIR};
@@ -44,7 +42,6 @@ TEST_CASE("Including iostream") {
 				INFO("Failed finding " << Symbol{{.mangled_name = std::string{mangled_name}}});
 				INFO(locations);
 				bool found_any_libraries{};
-				REQUIRE_THROWS(reader.libraries_from_symbol(std::string{mangled_name}, [](std::filesystem::path) { throw 0; }));
 				CHECK(found_any_libraries);
 				continue;
 			}
