@@ -3,8 +3,6 @@
 #include <cassert>
 #include <optional>
 
-void iterable_tester();
-
 namespace detail::iterable {
 	namespace helper {
 		template <class Class, class Product>
