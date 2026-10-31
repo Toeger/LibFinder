@@ -117,8 +117,22 @@ struct Iterable {
 	}
 
 	template <detail::iterable::Iterable_Compatible Generator>
+		requires(not detail::iterable::has_assign_next<Generator>)
+	void assign_next(this Generator &&self, std::optional<detail::iterable::Product<&Generator::get_next>> &next) {
+		next = self.get_next();
+	}
+
+	template <detail::iterable::Iterable_Compatible Generator>
 		requires(not detail::iterable::has_get_next<Generator>)
 	std::optional<detail::iterable::Product<&Generator::assign_next>> get_next(this Generator &self) {
+		std::optional<detail::iterable::Product<&Generator::assign_next>> next;
+		self.assign_next(next);
+		return next;
+	}
+
+	template <detail::iterable::Iterable_Compatible Generator>
+		requires(not detail::iterable::has_get_next<Generator>)
+	std::optional<detail::iterable::Product<&Generator::assign_next>> get_next(this Generator &&self) {
 		std::optional<detail::iterable::Product<&Generator::assign_next>> next;
 		self.assign_next(next);
 		return next;
