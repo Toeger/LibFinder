@@ -25,9 +25,9 @@ struct Locate_Libraries : Iterable {
 		, pos{0} {
 		output.pop_back();
 	}
-	void assign_next(std::optional<std::filesystem::path> &result) {
+	void assign_next(std::optional<std::filesystem::path> &next) {
 		if (pos >= output.size()) {
-			result = std::nullopt;
+			next = std::nullopt;
 			return;
 		}
 		std::string_view line = output.data() + pos;
@@ -35,7 +35,7 @@ struct Locate_Libraries : Iterable {
 #ifdef __linux__
 		assert(line.front() == '/');
 #endif
-		result = line;
+		next = line;
 		pos += line.size() + 1;
 	}
 	std::string output;

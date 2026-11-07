@@ -475,14 +475,14 @@ struct Symbol_database::Reader::Libraries_Of_Symbol_Impl : Iterable {
 		}
 	}
 
-	void assign_next(std::optional<std::filesystem::path> &result) {
+	void assign_next(std::optional<std::filesystem::path> &next) {
 		if (ext) {
 			std::uint64_t lib_index = ext.extract_number(sizeof_Lib_Index);
 			File_Offset lib_offset = Extractor{lib_indexes}[lib_index * sizeof(File_Offset)];
-			result = Extractor{data}[lib_offset];
+			next = Extractor{data}[lib_offset];
 			return;
 		}
-		result = std::nullopt;
+		next = std::nullopt;
 	}
 
 	std::uint8_t sizeof_Lib_Index;
@@ -533,12 +533,12 @@ std::string_view Symbol_database::Reader::get_symbol(std::size_t index) const {
 	return Extractor{data}[offset];
 }
 
-void Symbol_database::Reader::Libraries_Of_Symbol_Iterable::assign_next(std::optional<std::filesystem::path> &result) {
-	(+*this).assign_next(result);
+void Symbol_database::Reader::Libraries_Of_Symbol_Iterable::assign_next(std::optional<std::filesystem::path> &next) {
+	(+*this).assign_next(next);
 }
 
-void Symbol_database::Reader::Symbols_Libraries_Of_Prefix_Iterable::assign_next(std::optional<std::pair<std::string_view, std::filesystem::path>> &result) {
-	(+*this).assign_next(result);
+void Symbol_database::Reader::Symbols_Libraries_Of_Prefix_Iterable::assign_next(std::optional<std::pair<std::string_view, std::filesystem::path>> &next) {
+	(+*this).assign_next(next);
 }
 
 #include "bimpl.impl"

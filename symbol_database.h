@@ -68,7 +68,7 @@ namespace Symbol_database {
 		static constexpr Bimpl_Info libraries_of_symbol_pimpl_info{.size = 56, .nothrow_copyable = true, .wasteless = true};
 		struct Libraries_Of_Symbol_Iterable : Bimpl<Libraries_Of_Symbol_Impl, libraries_of_symbol_pimpl_info, Symbol_database::Reader &, std::string_view>,
 											  Iterable {
-			void assign_next(std::optional<std::filesystem::path> &result);
+			void assign_next(std::optional<std::filesystem::path> &next);
 		};
 
 		struct Libraries_Of_Prefix_Impl;
@@ -77,7 +77,7 @@ namespace Symbol_database {
 		struct Symbols_Libraries_Of_Prefix_Iterable
 			: Bimpl<Libraries_Of_Prefix_Impl, libraries_of_prefix_pimpl_info, Symbol_database::Reader &, std::string_view>,
 			  Iterable {
-			void assign_next(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &result);
+			void assign_next(std::optional<std::pair<std::string_view /*symbol*/, std::filesystem::path>> &next);
 		};
 	};
 }; // namespace Symbol_database

@@ -82,7 +82,6 @@ int main(int argc, char *argv[]) try {
 		}
 	}
 	if (program_args.contains("test")) {
-		test_system();
 		return 0;
 	}
 	if (program_args.contains("profile")) {

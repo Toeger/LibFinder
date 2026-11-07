@@ -110,15 +110,15 @@ struct Recently_Installed_Dpkg_Packages : Iterable {
 		package_input_stream = Reverse_Lines{.lines = packages};
 	}
 
-	void assign_next(std::optional<Recently_Installed_Dpkg_Package> &result) {
+	void assign_next(std::optional<Recently_Installed_Dpkg_Package> &next) {
 		if (auto log_entry = package_input_stream.get_next(); log_entry.has_value()) {
 			auto &line = *log_entry;
 			if (line.empty()) {
-				return assign_next(result);
+				return assign_next(next);
 			}
 			std::match_results<std::string_view::const_iterator> match;
 			if (std::regex_match(std::begin(line), std::end(line), match, dpkg_entry)) {
-				result = Recently_Installed_Dpkg_Package{
+				next = Recently_Installed_Dpkg_Package{
 					.package_name = {match[2].first, match[2].second},
 					.timestamp = {match[1].first, match[1].second},
 				};
@@ -129,13 +129,13 @@ struct Recently_Installed_Dpkg_Packages : Iterable {
 		} else {
 			dpkg_logs.pop_back();
 			if (dpkg_logs.empty()) {
-				result = std::nullopt;
+				next = std::nullopt;
 				return;
 			}
 			packages = get_output_from_command(std::string_view{dpkg_logs.back().c_str()}.ends_with(".gz") ? "zgrep" : "grep",
 											   {" status installed ", dpkg_logs.back()});
 			package_input_stream = Reverse_Lines{{}, packages};
-			return assign_next(result);
+			return assign_next(next);
 		}
 	}
 
@@ -147,51 +147,22 @@ struct Recently_Installed_Dpkg_Packages : Iterable {
 
 const std::regex Recently_Installed_Dpkg_Packages::dpkg_entry{R"((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) status installed ([^:]+):.*)"};
 
-struct Dpkg_Packages : Iterable {
-	void assign_next(std::optional<std::string_view> &result) {
-		std::string_view res = view.subview(0, view.find("\n"));
-		if (res.empty()) {
-			result = std::nullopt;
-			return;
-		}
-		view.remove_prefix(res.size() + 1);
-		if (not res.starts_with("ii ")) {
-			return assign_next(result);
-		}
-		res.remove_prefix(4);
-		result = res.substr(0, res.find(' '));
+Dpkg_Packages::Dpkg_Packages()
+	: packages{get_output_from_command("dpkg", {"-l"})}
+	, view{packages} {}
+
+void Dpkg_Packages::assign_next(std::optional<std::string_view> &next) {
+	std::string_view res = view.subview(0, view.find("\n"));
+	if (res.empty()) {
+		next = std::nullopt;
+		return;
 	}
-
-	std::string packages = get_output_from_command("dpkg", {"-l"});
-	std::string_view view = packages;
-};
-
-void test_system() {
-	profile::target = &std::cerr;
-	static const std::regex lib_file{R"(.*/lib[^/]*\.(a|so)$)"};
-	std::vector<std::string> dpkg_command{"-L"};
-	dpkg_command.append_range(Dpkg_Packages{} | [](std::string_view sv) { return std::string{sv}; });
-	PROF << "to get list of packages";
-
-	std::vector<std::filesystem::path> libfiles;
-	const auto package_list = get_output_from_command("dpkg", std::move(dpkg_command));
-	PROF << "to get list of files from dpkg";
-	for (auto file : package_list | std::views::split(std::string_view{"\n"})) {
-		std::string_view line{file};
-		if (not(line.ends_with(".so") or line.ends_with(".a"))) {
-			continue;
-		}
-		const auto slash_pos = line.rfind('/');
-		line.remove_prefix(slash_pos + 1);
-		if (line.starts_with("lib")) {
-			libfiles.push_back(line);
-		}
+	view.remove_prefix(res.size() + 1);
+	if (not res.starts_with("ii ")) {
+		return assign_next(next);
 	}
-	PROF << "to parse list of" << std::size(libfiles) << "lib files";
-
-	update(libfiles);
-
-	PROF << "to parse symbols";
+	res.remove_prefix(4);
+	next = res.substr(0, res.find(' '));
 }
 
 const std::string &get_install_status() {
