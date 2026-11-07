@@ -215,4 +215,14 @@ struct Make_iterable : Iterable {
 	return Make_iterable{source};
 }
 
+template <std::derived_from<Iterable> Source, class Function>
+void operator|(Source &&source, Function &&f)
+	requires(not std::is_same_v<std::remove_cvref_t<Source>, Iterable> and std::is_invocable_v<decltype(f), decltype(*source.get_next())> and
+			 std::is_void_v<std::invoke_result_t<decltype(f), decltype(*source.get_next())>>)
+{
+	for (auto &v : source) {
+		f(v);
+	}
+}
+
 //TODO: Add fold, skip, filter, unique, with_index, first, second

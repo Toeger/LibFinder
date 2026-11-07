@@ -37,6 +37,9 @@ static_assert(not detail::iterable::has_direct_assign_next<const Basic_assign_ne
 
 static_assert(not detail::iterable::Iterable_compatible<Iterable>);
 
+const static std::vector nums{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+const static std::vector squares{0, 1, 2 * 2, 3 * 3, 4 * 4, 5 * 5, 6 * 6, 7 * 7, 8 * 8, 9 * 9};
+
 TEST_CASE("Basic assign_next iteration", "iterable") {
 	int count = 0;
 	for (int &i : Basic_assign_next{}) {
@@ -62,12 +65,12 @@ TEST_CASE("Getting the generated next", "iterable") {
 
 TEST_CASE("Container conversion", "iterable") {
 	std::vector<int> v = Basic_assign_next{};
-	REQUIRE(v == std::vector{0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+	REQUIRE(v == nums);
 }
 
 TEST_CASE("Transform", "iterable") {
 	std::vector<int> v = Basic_assign_next{} | [](int i) { return i * i; };
-	REQUIRE(v == std::vector{0, 1, 2 * 2, 3 * 3, 4 * 4, 5 * 5, 6 * 6, 7 * 7, 8 * 8, 9 * 9});
+	REQUIRE(v == squares);
 }
 
 TEST_CASE("Limit", "iterable") {
@@ -77,11 +80,11 @@ TEST_CASE("Limit", "iterable") {
 
 TEST_CASE("Over limit", "iterable") {
 	std::vector<int> v = Basic_assign_next{} | limit(100);
-	REQUIRE(v == std::vector{0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+	REQUIRE(v == nums);
 }
 
 TEST_CASE("Making iterable", "iterable") {
-	std::vector v1{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+	std::vector v1 = nums;
 	static_assert(is_iterable<std::vector<int> &>);
 	static_assert(is_iterable<decltype(v1)>);
 	static_assert(not std::is_void_v<std::iterator_traits<decltype(std::begin(v1))>::value_type>);
@@ -130,3 +133,9 @@ struct Reference_assign : Iterable {
 static_assert(detail::iterable::has_direct_assign_next<Reference_assign>);
 static_assert(std::is_same_v<detail::iterable::Product<Reference_assign, &Reference_assign::assign_next>, int &>);
 static_assert(std::is_same_v<decltype(std::begin(std::declval<Reference_assign &>()))::real_value_type, int &>);
+
+TEST_CASE("For each", "iterable") {
+	std::vector v1 = nums;
+	v1 | iterable | [](int &i) { i = i * i; };
+	REQUIRE(v1 == squares);
+}
